@@ -1,10 +1,36 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api";
 
+// The FastAPI backend is hosted separately from this frontend. When it's down the
+// browser throws an opaque TypeError, so surface the actual cause to the operator.
+const OFFLINE_MESSAGE =
+  "Backend unreachable — live vessel data is unavailable. " +
+  "The FastAPI service is hosted separately; see the README to run it locally.";
+
+export class BackendOfflineError extends Error {
+  constructor() {
+    super(OFFLINE_MESSAGE);
+    this.name = "BackendOfflineError";
+  }
+}
+
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...options?.headers },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...options?.headers },
+    });
+  } catch {
+    throw new BackendOfflineError();
+  }
+  // 502-504 means the platform can't reach the app. A 404 is ambiguous: the API uses it
+  // for "vessel not found", but a deleted Railway app also 404s with its own JSON body —
+  // only the latter lacks the `detail` field FastAPI always sends.
+  if (res.status >= 502 && res.status <= 504) throw new BackendOfflineError();
+  if (res.status === 404) {
+    const body = await res.clone().json().catch(() => null);
+    if (!body || typeof body.detail !== "string") throw new BackendOfflineError();
+  }
   if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
   return res.json();
 }

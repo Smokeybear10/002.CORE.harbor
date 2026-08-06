@@ -15,10 +15,10 @@ uvicorn app.main:app --reload --port 3003 &
 BACKEND_PID=$!
 cd ..
 
-# Frontend
+# Frontend (Next.js needs Node 20+; mise.toml pins it, so run through mise)
 echo "Starting frontend..."
 cd frontend
-npm run dev &
+mise exec -- npm run dev &
 FRONTEND_PID=$!
 cd ..
 

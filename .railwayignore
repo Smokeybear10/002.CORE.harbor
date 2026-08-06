@@ -1,0 +1,10 @@
+# Only backend/ is deployed (service root directory is /backend). Everything here is
+# either built on Railway, hosted on Vercel, or local-only state that belongs on the volume.
+frontend/
+docs/
+design/
+.gstack/
+.claude/
+backend/venv/
+backend/data/
+*.db

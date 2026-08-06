@@ -1,0 +1,7 @@
+# Only frontend/ is deployed (project root directory is set to frontend).
+# The backend is hosted separately — excluding it keeps the upload under the size limit.
+backend/
+docs/
+design/
+.gstack/
+.claude/

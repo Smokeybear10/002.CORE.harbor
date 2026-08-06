@@ -2,7 +2,7 @@
 
 **Live demo: [h4bor.vercel.app](https://h4bor.vercel.app)**
 
-> Railway backend is currently down — the live demo can't pull real-time data without it. If you'd like to help keep this project running, [sponsor on GitHub](https://github.com/sponsors/Smokeybear10). Every bit goes straight to hosting.
+> The hosted backend is offline, so the live demo can't pull real-time data — the frontend loads but vessel data will be empty. Run it locally with the Quick Start below to see the full pipeline. If you'd like to help keep this project hosted, [sponsor on GitHub](https://github.com/sponsors/Smokeybear10). Every bit goes straight to hosting.
 
 Maritime awareness and operator decision-support platform for contested littoral defense.
 
