@@ -238,6 +238,35 @@ def upgrade_db_schema():
     _backfill_verification_request_satellite_metadata()
 
 
+def reclaim_free_pages():
+    """Return SQLite's free pages to the filesystem.
+
+    Position and risk-history rows are pruned continuously, but SQLite keeps the
+    freed pages inside the file — so on a fixed-size volume the DB high-water-marks
+    until the disk is full. VACUUM needs free space equal to the live data, so skip
+    it when the file is already large and fall back to incremental_vacuum.
+    """
+    with engine.begin() as conn:
+        free_pages = conn.execute(text("PRAGMA freelist_count")).scalar() or 0
+        page_size = conn.execute(text("PRAGMA page_size")).scalar() or 4096
+        free_mb = free_pages * page_size / (1024 * 1024)
+        if free_mb < 32:
+            return 0.0
+        conn.execute(text("PRAGMA auto_vacuum = INCREMENTAL"))
+        conn.execute(text("PRAGMA incremental_vacuum"))
+
+    # incremental_vacuum only works if auto_vacuum was already on; if the freelist
+    # didn't budge, do the full rebuild. VACUUM can't run inside a transaction.
+    with engine.connect() as conn:
+        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+        still_free = conn.execute(text("PRAGMA freelist_count")).scalar() or 0
+        if still_free * page_size / (1024 * 1024) >= 32:
+            conn.execute(text("VACUUM"))
+        reclaimed = free_pages - (conn.execute(text("PRAGMA freelist_count")).scalar() or 0)
+
+    return round(reclaimed * page_size / (1024 * 1024), 1)
+
+
 def get_db():
     db = SessionLocal()
     try:

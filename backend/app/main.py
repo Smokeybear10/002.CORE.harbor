@@ -10,7 +10,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import init_db
+from app.database import init_db, reclaim_free_pages
 from app.api.routes import router
 
 logging.basicConfig(
@@ -24,6 +24,17 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
+
+    # The archive and the database share a fixed-size volume. Reclaim space before
+    # ingestion starts so a full disk from a previous run can't wedge startup.
+    from app.services.archive_service import prune_archives
+    log = logging.getLogger("harboros")
+    pruned = prune_archives()
+    if pruned:
+        log.info(f"Pruned {len(pruned)} archive files at startup")
+    reclaimed_mb = reclaim_free_pages()
+    if reclaimed_mb:
+        log.info(f"Reclaimed {reclaimed_mb}MB of SQLite free pages at startup")
 
     # Auto-start live ingestion if API key is available
     api_key = os.environ.get("AISSTREAM_API_KEY", "")

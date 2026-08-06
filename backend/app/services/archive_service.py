@@ -39,6 +39,11 @@ ARCHIVE_DIR = Path(os.environ.get(
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "archive", "positions")
 ))
 
+# Ceiling on total Parquet size. Ingestion archives every ~5 minutes forever, so
+# without a cap the archive grows until the host volume is full and every write
+# fails. Oldest files are dropped first once the budget is exceeded.
+MAX_ARCHIVE_MB = float(os.environ.get("HARBOROS_MAX_ARCHIVE_MB", "300"))
+
 # Parquet schema for position reports
 POSITION_SCHEMA = pa.schema([
     ("vessel_id", pa.string()),
@@ -147,17 +152,46 @@ def archive_old_positions(
             f"({file_size_mb:.1f}MB, {table.num_rows} rows)"
         )
 
+        pruned = prune_archives()
+
         return {
             "archived": deleted,
             "file": str(filepath),
             "file_size_mb": round(file_size_mb, 2),
             "rows": table.num_rows,
+            "pruned": pruned,
             "message": f"Archived {deleted} positions to {filename}",
         }
 
     finally:
         if own_db:
             db.close()
+
+
+def prune_archives(max_mb: float = MAX_ARCHIVE_MB) -> list[str]:
+    """Delete the oldest Parquet files until the archive fits in max_mb.
+
+    Returns the filenames that were removed.
+    """
+    if not ARCHIVE_DIR.exists():
+        return []
+
+    files = sorted(ARCHIVE_DIR.glob("*.parquet"), key=lambda f: f.stat().st_mtime)
+    total_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
+    removed = []
+
+    # Keep the newest file even if it alone exceeds the budget — dropping it would
+    # discard the data we just archived.
+    for f in files[:-1]:
+        if total_mb <= max_mb:
+            break
+        total_mb -= f.stat().st_size / (1024 * 1024)
+        f.unlink()
+        removed.append(f.name)
+
+    if removed:
+        logger.info(f"Pruned {len(removed)} archive files, now {total_mb:.1f}MB / {max_mb}MB")
+    return removed
 
 
 def list_archives() -> list[dict]:
