@@ -240,12 +240,11 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         setAlerts((prev) => (shallowAlertListEqual(prev, a.items) ? prev : a.items));
         setAlertsTotal(a.total);
         setIngestionStatus(status);
-        setSelectedVessel((prev) => {
-          if (prev && (prev.id.startsWith("dark-") || prev.id.startsWith("seapod-"))) {
-            api.getVesselDetail(prev.id).then(setSelectedVessel).catch(() => {});
-          }
-          return prev;
-        });
+        if (selectedVesselId) {
+          const detail = await api.getVesselDetail(selectedVesselId).catch(() => null);
+          if (cancelled) return;
+          if (detail) setSelectedVessel((prev) => prev?.id === detail.id ? detail : prev);
+        }
         setConnectionOk(true);
       } catch {
         if (cancelled) return;
@@ -258,7 +257,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
 
     refreshTimer.current = setInterval(tick, REFRESH_INTERVAL_MS);
     return () => { cancelled = true; if (refreshTimer.current) clearInterval(refreshTimer.current); };
-  }, [activeRegion, alertStatusFilter, api, connectionOk, isDemo, loading, regions, showToast]);
+  }, [activeRegion, alertStatusFilter, api, connectionOk, isDemo, loading, regions, selectedVesselId, showToast]);
 
   // Region change handler
   const handleRegionChange = useCallback(async (regionKey: string | null) => {

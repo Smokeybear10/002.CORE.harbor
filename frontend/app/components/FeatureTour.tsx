@@ -33,12 +33,7 @@ const STEP_REGION = 2;
 export default function FeatureTour({
   active,
   onComplete,
-  onSelectRegion,
-  onSelectVessel: _onSelectVessel,
   onDeselectVessel,
-  onToggleAnalytics: _onToggleAnalytics,
-  onFlyTo,
-  analyticsOpen: _analyticsOpen,
   activeRegion,
 }: FeatureTourProps) {
   const [step, setStep] = useState(0);
@@ -47,59 +42,48 @@ export default function FeatureTour({
   const [spotlightStyle, setSpotlightStyle] = useState<React.CSSProperties>({});
   const [transitioning, setTransitioning] = useState(false);
   const [paused, setPaused] = useState(false);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const prevRegionRef = useRef<string | null>(null);
   const stepRef = useRef(step);
-  stepRef.current = step;
+  useEffect(() => { stepRef.current = step; }, [step]);
 
   const steps: TourStep[] = [
     {
-      title: "Live Vessel Map",
-      description: "Real-time vessel positions rendered on a global maritime map. Vessel markers are color-coded by risk level \u2014 green for normal, yellow for monitor, orange for verify, red for escalate.",
+      title: "Vessel map",
+      description: "Select a vessel to see its position, identity and report time. Amber, orange and red markers indicate increasing review priority.",
       target: "map",
       position: "left",
-      action: () => {
-        onDeselectVessel();
-        onSelectRegion(null);
-        onFlyTo([20, 0], 2);
-      },
+      action: onDeselectVessel,
     },
     {
-      title: "Vessel Density Heatmap",
-      description: "When zoomed out, vessels aggregate into a density heatmap showing traffic concentration across waterways. Zoom in past the threshold and individual ship markers appear.",
-      hint: "Zoom and pan the map to explore",
+      title: "Traffic density",
+      description: "Zoom out to see where vessels are concentrated. Brighter areas mean more traffic, not higher risk. Zoom in to select individual vessels.",
+      hint: "Scroll to zoom. Drag to pan.",
       target: "map",
       position: "left",
       interactive: true,
-      action: () => {
-        onSelectRegion(null);
-        onFlyTo([20, 0], 2);
-      },
     },
     {
-      title: "Region Selector",
-      description: "9 contested waterways monitored in real time. Click any region to zoom in, filter vessels and alerts to that area, and see per-region vessel counts and alert badges.",
-      hint: "Click a region above to try it",
+      title: "Coverage",
+      description: "The region menu lists the areas monitored by this deployment. Panning the map does not change the live feed’s coverage.",
+      hint: "Open the region menu to see coverage.",
       target: "regions",
       position: "bottom",
       interactive: true,
-      action: () => {
-        onSelectRegion(null);
-        prevRegionRef.current = null;
-      },
     },
     {
-      title: "Alert Feed",
-      description: "Every vessel that triggers anomaly detection appears here with its composite risk score. Alerts are triaged into action tiers \u2014 ESCALATE, VERIFY, MONITOR \u2014 based on fuzzy inference.",
-      hint: "Scroll through the alerts",
+      title: "Alerts",
+      description: "Open an alert to review the vessel and the signals behind its score. You can acknowledge it, add a note or dismiss it.",
+      hint: "Select an alert when one is available.",
       target: "alerts",
       position: "right",
       interactive: true,
     },
     {
-      title: "Analytics Dashboard",
-      description: "Command-level overview: risk distribution across the fleet, alert counts by action tier, detection metrics, and ingestion throughput. Click the Analytics button to open it.",
-      hint: "Click Analytics to open the dashboard",
+      title: "Analytics",
+      description: "Review vessel counts, risk scores and common signals. Scores help prioritize review; they are not threat probabilities.",
+      hint: "Open Analytics to inspect the breakdown.",
       target: "analytics-btn",
       position: "left",
       interactive: true,
@@ -109,9 +93,43 @@ export default function FeatureTour({
   const totalSteps = steps.length;
   const current = steps[step];
 
+  const handleClose = () => {
+    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
+    setVisible(false);
+    setPaused(false);
+    setStep(0);
+    onComplete();
+  };
+
+  const transition = (nextStep: number) => {
+    setTransitioning(true);
+    setVisible(false);
+    setTimeout(() => setStep(nextStep), 250);
+  };
+
+  const goNext = () => {
+    if (step >= totalSteps - 1) { handleClose(); return; }
+    transition(step + 1);
+  };
+
+  const goPrev = () => {
+    if (step > 0) transition(step - 1);
+  };
+
+  const handleRestart = () => {
+    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
+    setPaused(false);
+    if (step === 0) {
+      const action = steps[0]?.action;
+      if (action) action();
+      return;
+    }
+    transition(0);
+  };
+
   const positionElements = useCallback(() => {
     if (!current) return;
-    const el = document.querySelector(`[data-tour="${current.target}"]`);
+    const el = document.querySelector(current.target === "alerts" ? '[aria-label="Alert queue"]' : `[data-tour="${current.target}"]`);
     if (!el) return;
 
     const rect = el.getBoundingClientRect();
@@ -122,11 +140,11 @@ export default function FeatureTour({
       left: rect.left - pad,
       width: rect.width + pad * 2,
       height: rect.height + pad * 2,
-      borderRadius: 12,
+      borderRadius: 4,
     });
 
-    const tooltipW = 340;
-    const tooltipH = 220;
+    const tooltipW = Math.min(340, window.innerWidth - 32);
+    const tooltipH = tooltipRef.current?.getBoundingClientRect().height ?? 280;
     let top = 0;
     let left = 0;
 
@@ -149,6 +167,11 @@ export default function FeatureTour({
         break;
     }
 
+    if (current.target !== "map" && (current.position === "left" || current.position === "right") && (left < 16 || left + tooltipW > window.innerWidth - 16)) {
+      top = rect.top - tooltipH - 16 >= 16 ? rect.top - tooltipH - 16 : rect.bottom + 16;
+      left = rect.left + rect.width / 2 - tooltipW / 2;
+    }
+
     top = Math.max(16, Math.min(top, window.innerHeight - tooltipH - 16));
     left = Math.max(16, Math.min(left, window.innerWidth - tooltipW - 16));
 
@@ -159,33 +182,30 @@ export default function FeatureTour({
     if (!active || !current) return;
     if (!current.interactive) return;
 
-    const elevated: HTMLElement[] = [];
-    const el = document.querySelector(`[data-tour="${current.target}"]`) as HTMLElement | null;
-    if (el) {
-      el.style.position = "relative";
-      el.style.zIndex = "61";
-      elevated.push(el);
-    }
-
-    if (current.extraInteractive) {
-      const timer = setTimeout(() => {
-        for (const id of current.extraInteractive!) {
-          const extra = document.querySelector(`[data-tour="${id}"]`) as HTMLElement | null;
-          if (extra) {
-            extra.style.zIndex = "61";
-            elevated.push(extra);
-          }
-        }
-      }, 500);
-      return () => {
-        clearTimeout(timer);
-        for (const e of elevated) { e.style.position = ""; e.style.zIndex = ""; }
-      };
-    }
-
-    return () => {
-      for (const e of elevated) { e.style.position = ""; e.style.zIndex = ""; }
+    const elevated: { element: HTMLElement; position: string; zIndex: string }[] = [];
+    const elevate = (element: HTMLElement) => {
+      const layer = element.closest("header") ?? element;
+      if (layer.dataset.tour === "map") return;
+      elevated.push({ element: layer, position: layer.style.position, zIndex: layer.style.zIndex });
+      if (getComputedStyle(layer).position === "static") layer.style.position = "relative";
+      layer.style.zIndex = "61";
     };
+    const restore = () => {
+      elevated.forEach(({ element, position, zIndex }) => {
+        element.style.position = position;
+        element.style.zIndex = zIndex;
+      });
+    };
+    const el = document.querySelector<HTMLElement>(current.target === "alerts" ? '[aria-label="Alert queue"]' : `[data-tour="${current.target}"]`);
+    if (el) elevate(el);
+
+    const timer = current.extraInteractive ? setTimeout(() => {
+      current.extraInteractive?.forEach((id) => {
+        const extra = document.querySelector<HTMLElement>(`[data-tour="${id}"]`);
+        if (extra) elevate(extra);
+      });
+    }, 500) : undefined;
+    return () => { clearTimeout(timer); restore(); };
   }, [active, step, current]);
 
   // Auto-advance when user picks a region during the region step (suspended while paused)
@@ -202,7 +222,7 @@ export default function FeatureTour({
       return () => clearTimeout(timer);
     }
     prevRegionRef.current = activeRegion;
-  }, [active, activeRegion, paused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, activeRegion, paused]);
 
   useEffect(() => {
     if (!active || !current) return;
@@ -234,49 +254,17 @@ export default function FeatureTour({
   useEffect(() => {
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"]')) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); handleClose(); return; }
       if (paused) return;
+      if (e.key === " " && e.target instanceof HTMLElement && e.target.closest("button, a")) return;
       if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); goNext(); }
       if (e.key === "ArrowLeft") { e.preventDefault(); goPrev(); }
-      if (e.key === "Escape") handleClose();
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
   });
-
-  const transition = (nextStep: number) => {
-    setTransitioning(true);
-    setVisible(false);
-    setTimeout(() => setStep(nextStep), 250);
-  };
-
-  const goNext = () => {
-    if (step >= totalSteps - 1) { handleClose(); return; }
-    transition(step + 1);
-  };
-
-  const goPrev = () => {
-    if (step > 0) transition(step - 1);
-  };
-
-  const handleClose = () => {
-    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
-    setVisible(false);
-    setPaused(false);
-    setStep(0);
-    onComplete();
-  };
-
-  const handleRestart = () => {
-    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
-    setPaused(false);
-    if (step === 0) {
-      const action = steps[0]?.action;
-      if (action) action();
-      return;
-    }
-    transition(0);
-  };
 
   if (!active) return null;
 
@@ -291,14 +279,13 @@ export default function FeatureTour({
             className="absolute inset-0 transition-opacity duration-300"
             style={{ opacity: visible ? 1 : 0, pointerEvents: "none" }}
           >
-            <div className="absolute inset-0 bg-black/50" />
 
             <div
               className="absolute transition-all duration-500 ease-out"
               style={{
                 ...spotlightStyle,
                 boxShadow: "0 0 0 9999px rgba(0,0,0,0.50)",
-                border: `2px solid ${isInteractive ? "rgba(34, 211, 238, 0.5)" : "rgba(59, 130, 246, 0.4)"}`,
+                border: "1px solid rgba(148,163,184,0.5)",
                 zIndex: 1,
                 pointerEvents: "none",
               }}
@@ -312,13 +299,16 @@ export default function FeatureTour({
       )}
 
       <div
-        className={isNoDim ? "fixed z-10" : "absolute z-10"}
+        ref={tooltipRef}
+        role="region"
+        aria-label="Map guide"
+        className={`w-[min(340px,calc(100vw-32px))] max-h-[calc(100dvh-32px)] overflow-y-auto ${isNoDim ? "fixed z-10" : "absolute z-10"}`}
         style={isNoDim
           ? {
               bottom: 32,
               left: "50%",
               transform: visible && !transitioning ? "translateX(-50%) translateY(0)" : "translateX(-50%) translateY(8px)",
-              width: 420,
+              width: Math.min(420, window.innerWidth - 32),
               pointerEvents: "auto",
               transition: "opacity 300ms ease, transform 300ms ease",
               opacity: visible && !transitioning ? 1 : 0,
@@ -332,17 +322,18 @@ export default function FeatureTour({
             }
         }
       >
-        <div className="bg-[#0d1320]/95 backdrop-blur-xl border border-blue-500/20 rounded-xl shadow-2xl shadow-black/40 p-6">
+        <div className="bg-[var(--workspace-surface)] border border-[var(--workspace-border)] rounded p-5">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[10px] text-blue-400 font-semibold uppercase tracking-widest">
-              Feature Tour{" "}
-              <span className="text-slate-600">{step + 1} / {totalSteps}</span>
+            <span className="text-xs text-slate-400">
+              Map guide{" "}
+              <span className="text-slate-400">{step + 1} / {totalSteps}</span>
             </span>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setPaused((p) => !p)}
+                aria-label={paused ? "Resume guide" : "Pause guide"}
                 title={paused ? "Resume" : "Pause"}
-                className="text-slate-500 hover:text-slate-200 transition-colors p-1 rounded hover:bg-white/5"
+                className="flex h-11 w-11 items-center justify-center text-slate-400 hover:text-slate-100 transition-colors rounded hover:bg-white/5"
               >
                 {paused ? (
                   <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
@@ -357,8 +348,9 @@ export default function FeatureTour({
               </button>
               <button
                 onClick={handleRestart}
+                aria-label="Restart guide"
                 title="Begin again"
-                className="text-slate-500 hover:text-slate-200 transition-colors p-1 rounded hover:bg-white/5"
+                className="flex h-11 w-11 items-center justify-center text-slate-400 hover:text-slate-100 transition-colors rounded hover:bg-white/5"
               >
                 <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="1 4 1 10 7 10" />
@@ -367,8 +359,9 @@ export default function FeatureTour({
               </button>
               <button
                 onClick={handleClose}
+                aria-label="Close guide"
                 title="Close"
-                className="text-slate-600 hover:text-slate-300 transition-colors p-1 rounded hover:bg-white/5"
+                className="flex h-11 w-11 items-center justify-center text-slate-400 hover:text-slate-100 transition-colors rounded hover:bg-white/5"
               >
                 <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M18 6L6 18M6 6l12 12" />
@@ -377,17 +370,17 @@ export default function FeatureTour({
             </div>
           </div>
 
-          <h3 className="text-lg font-bold text-white mb-2">
+          <h3 className="text-base font-medium text-slate-100 mb-2">
             {paused ? "Paused" : current?.title}
           </h3>
-          <p className="text-[13px] text-slate-400 leading-relaxed mb-1">
+          <p className="text-sm text-slate-300 leading-relaxed mb-1">
             {paused
-              ? "The tour is paused. Explore freely — resume when you're ready, or begin again from the top."
+              ? "Explore the map. Resume the guide when ready."
               : current?.description}
           </p>
 
           {!paused && current?.hint && (
-            <p className="text-[11px] text-cyan-400/80 mb-4 flex items-center gap-1.5">
+            <p className="text-xs text-slate-400 mt-3 mb-4 flex items-center gap-1.5">
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0">
                 <path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" />
               </svg>
@@ -400,7 +393,7 @@ export default function FeatureTour({
             <button
               onClick={goPrev}
               disabled={paused || step === 0}
-              className="text-[11px] text-slate-500 hover:text-slate-200 disabled:opacity-20 disabled:cursor-not-allowed transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
+              className="min-h-11 text-sm text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-3 rounded hover:bg-white/5"
             >
               Back
             </button>
@@ -411,9 +404,9 @@ export default function FeatureTour({
                   key={i}
                   className={`h-1.5 rounded-full transition-all duration-300 ${
                     i === step
-                      ? "w-5 bg-blue-400"
+                      ? "w-5 bg-slate-300"
                       : i < step
-                        ? "w-1.5 bg-blue-400/30"
+                        ? "w-1.5 bg-slate-500"
                         : "w-1.5 bg-slate-700"
                   }`}
                 />
@@ -423,7 +416,7 @@ export default function FeatureTour({
             <button
               onClick={goNext}
               disabled={paused}
-              className="text-[11px] font-semibold text-white px-4 py-1.5 rounded-lg transition-colors bg-blue-600/80 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="min-h-11 text-sm font-medium text-slate-900 px-4 rounded transition-colors bg-slate-200 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {current?.nextLabel ?? (step >= totalSteps - 1 ? "Finish" : "Next")}
             </button>

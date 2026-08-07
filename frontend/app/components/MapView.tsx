@@ -243,7 +243,7 @@ export default function MapView({
     marker: maplibregl.Marker;
     el: HTMLDivElement;
     // Cached render state — skip innerHTML writes when unchanged
-    state: { w: number; h: number; color: string; glow: number; stroke: string; sw: number; type: string; selected: boolean; muted: boolean; course: number } | null;
+    state: { w: number; h: number; color: string; stroke: string; sw: number; type: string; selected: boolean; muted: boolean; course: number } | null;
     lng: number;
     lat: number;
   }>>({});
@@ -316,10 +316,7 @@ export default function MapView({
           type: "Point" as const,
           coordinates: [v.latest_position!.longitude, v.latest_position!.latitude],
         },
-        properties: {
-          risk: v.risk_score ?? 0,
-          weight: Math.max((v.risk_score ?? 0) / 100, 0.15),
-        },
+        properties: {},
       }));
 
     const geojson = { type: "FeatureCollection" as const, features };
@@ -334,17 +331,17 @@ export default function MapView({
         type: "heatmap",
         source: "vessel-heat",
         paint: {
-          "heatmap-weight": ["get", "weight"],
+          "heatmap-weight": 1,
           "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.6, 10, 1.2],
           "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 8, 5, 25, 10, 40],
           "heatmap-color": [
             "interpolate", ["linear"], ["heatmap-density"],
             0, "rgba(0,0,0,0)",
-            0.1, "rgba(34,197,94,0.3)",
-            0.3, "rgba(245,158,11,0.5)",
-            0.5, "rgba(249,115,22,0.6)",
-            0.7, "rgba(239,68,68,0.7)",
-            1, "rgba(239,68,68,0.9)",
+            0.1, "rgba(87,113,134,0.2)",
+            0.3, "rgba(105,135,157,0.4)",
+            0.5, "rgba(131,159,179,0.6)",
+            0.7, "rgba(162,187,205,0.75)",
+            1, "rgba(209,223,233,0.9)",
           ],
           "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.9, 10, 0],
         },
@@ -389,10 +386,10 @@ export default function MapView({
       const isMuted = !!(vessel.is_inactive || vessel.is_resolved);
       const color = isMuted ? "#64748b" : vesselColor(vessel.risk_score);
       const isSelected = vessel.id === selectedVesselId;
-      const h = isSelected ? 42 : score >= RISK_THRESHOLDS.verify ? 34 : 26;
+      const h = isSelected ? 34 : score >= RISK_THRESHOLDS.verify ? 28 : 20;
       const course = vessel.latest_position.course_over_ground ?? 0;
       const strokeColor = isSelected ? "#cbd5e1" : "rgba(0,0,0,0.7)";
-      const strokeWidth = isSelected ? 1.2 : 0.6;
+      const strokeWidth = isSelected ? 1.6 : 0.6;
       const vesselType = vessel.vessel_type ?? "other";
       const { hull, deck, bridge, viewBox, ratio } = vesselSvgPaths(vesselType);
       const w = Math.round(h * ratio);
@@ -466,13 +463,10 @@ export default function MapView({
       el.style.justifyContent = "center";
       el.style.zIndex = isSelected ? "2" : "1";
       el.setAttribute("aria-pressed", String(isSelected));
-      const glowSize = isSelected ? 3 : 0;
-      const glowAlpha = "60";
-
       el.innerHTML = `
       <div style="width:${w}px;height:${h}px;">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${w}" height="${h}"
-             style="transform:rotate(${course}deg);transition:transform 0.5s ease;filter:drop-shadow(0 0 ${glowSize}px ${color}${glowAlpha})">
+             style="transform:rotate(${course}deg);transition:transform 0.5s ease">
           <path d="${hull}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-linejoin="round"/>
           ${deck ? `<path d="${deck}" fill="rgba(255,255,255,0.10)" stroke="none"/>` : ""}
           <path d="${bridge}" fill="rgba(255,255,255,0.30)" stroke="rgba(255,255,255,0.12)" stroke-width="0.3"/>
@@ -481,7 +475,7 @@ export default function MapView({
 
       el.title = `${vessel.name} (${vessel.mmsi})${vessel.is_inactive && vessel.status_reason ? ` — ${vessel.status_reason}` : ""}`;
 
-      markerData.state = { w, h, color, glow: glowSize, stroke: strokeColor, sw: strokeWidth, type: vesselType, selected: isSelected, muted: isMuted, course };
+      markerData.state = { w, h, color, stroke: strokeColor, sw: strokeWidth, type: vesselType, selected: isSelected, muted: isMuted, course };
     });
 
     Object.keys(markersRef.current).forEach((vesselId) => {
@@ -736,7 +730,7 @@ export default function MapView({
       <div
         ref={mapContainer}
         role="application"
-        aria-label={`Vessel tracking map · ${vessels.length} vessel${vessels.length === 1 ? "" : "s"} in view. Use the alert queue or command palette (Cmd+K) for keyboard-accessible vessel selection.`}
+        aria-label={`Vessel tracking map · ${vessels.length} tracked vessel${vessels.length === 1 ? "" : "s"}. Use the alert queue or search (Cmd+K) to select a vessel.`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
       />
       {mapUnavailable && (
@@ -749,12 +743,13 @@ export default function MapView({
       )}
       {/* Base map toggle */}
       <div ref={styleMenuRef} aria-label="Map style" className="absolute bottom-[var(--map-tools-bottom)] right-3 z-10">
-        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-36 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1 shadow-lg">
+        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-40 rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1 shadow-lg">
+          <p className="px-3 py-2 text-xs font-medium text-slate-400">Basemap</p>
           {([['dark', 'Map'], ['maps', 'Hybrid'], ['satellite', 'Satellite']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mapMode === value} onClick={() => { setMapMode(value); setStyleMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between rounded px-3 text-xs ${mapMode === value ? "bg-white/[0.07] text-white" : "text-slate-300 hover:bg-white/[0.04]"}`}>{label}{mapMode === value && <span aria-hidden="true">✓</span>}</button>)}
         </div>}
-        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs font-medium text-slate-200 shadow-lg hover:bg-slate-800 disabled:opacity-40">
+        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" /></svg>
-          <span>Layers</span>
+          <span className="hidden min-[360px]:inline">Basemap</span>
         </button>
       </div>
 
