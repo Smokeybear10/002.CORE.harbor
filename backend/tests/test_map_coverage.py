@@ -141,6 +141,34 @@ def test_http_viewport_filters_vessels_and_alerts_and_validates_input(database, 
     assert "english_channel" in client.get("/api/regions?explore=true").json()
 
 
+@pytest.mark.parametrize("area,longitude,outside", [(bounds(), 0, 100), (bounds(178, -20, -178, -16), -179, 0)])
+def test_viewport_freshness_includes_reports_beyond_the_display_limit(database, area, longitude, outside):
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_db] = lambda: database
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    latitude = (area.south + area.north) / 2
+    for name, timestamp, lon, region in (
+        ("old-alert", now - timedelta(hours=1), longitude, "watched"),
+        ("fresh", now, longitude, "watched"),
+        ("outside", now + timedelta(minutes=1), outside, "other"),
+    ):
+        database.add(VesselORM(id=name, mmsi=name, name=name, vessel_type="cargo", flag_state="Unknown", region=region))
+        database.add(position(name, timestamp, lon, latitude))
+    database.add(AlertORM(id="old-alert", vessel_id="old-alert", risk_score=80, recommended_action="verify", explanation="Test alert"))
+    database.commit()
+    client = TestClient(app)
+    for filters in ({"bounds": area.model_dump_json()}, {"region": "watched"}):
+        response = client.get("/api/vessels", params={**filters, "limit": 1})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["items"][0]["id"] == "old-alert"
+        assert body["total"] == 2
+        assert datetime.fromisoformat(body["last_report_at"]).replace(tzinfo=None) == now
+    empty = client.get("/api/vessels", params={"region": "empty"}).json()
+    assert empty["last_report_at"] is None
+
+
 def test_pruning_preserves_notes_and_ignores_null_verification_ids(database):
     service = ingestion_service.IngestionService(api_key="test", region_keys=["la_harbor"])
     database.add_all([VesselORM(id=name, mmsi=name) for name in ("ais-orphan", "ais-notes", "ais-current")])
