@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
@@ -63,6 +63,7 @@ POSITION_SCHEMA = pa.schema([
 def archive_old_positions(
     retention_minutes: int = RETENTION_MINUTES,
     db: Session | None = None,
+    before_id: int | None = None,
 ) -> dict:
     """Archive position reports older than retention window to Parquet.
 
@@ -74,11 +75,14 @@ def archive_old_positions(
 
     try:
         cutoff = datetime.utcnow() - timedelta(minutes=retention_minutes)
+        old_filter = PositionReportORM.timestamp < cutoff
+        if before_id is not None:
+            old_filter = or_(old_filter, and_(PositionReportORM.vessel_id.like("ais-%"), PositionReportORM.id < before_id))
 
         # Count what we're about to archive
         old_count = (
             db.query(func.count(PositionReportORM.id))
-            .filter(PositionReportORM.timestamp < cutoff)
+            .filter(old_filter)
             .scalar()
         )
 
@@ -101,7 +105,7 @@ def archive_old_positions(
                 VesselORM.region,
             )
             .join(VesselORM, PositionReportORM.vessel_id == VesselORM.id)
-            .filter(PositionReportORM.timestamp < cutoff)
+            .filter(old_filter)
             .order_by(PositionReportORM.timestamp)
             .all()
         )
@@ -126,7 +130,7 @@ def archive_old_positions(
 
         # Write Parquet file
         ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp_str = datetime.utcnow().strftime("%Y-%m-%d_%H-%M")
+        timestamp_str = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S-%f")
         filename = f"positions_{timestamp_str}.parquet"
         filepath = ARCHIVE_DIR / filename
 
@@ -142,7 +146,7 @@ def archive_old_positions(
         # Delete archived positions from SQLite
         deleted = (
             db.query(PositionReportORM)
-            .filter(PositionReportORM.timestamp < cutoff)
+            .filter(old_filter)
             .delete()
         )
         db.commit()

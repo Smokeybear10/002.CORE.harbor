@@ -2,7 +2,7 @@
 
 **Live demo: [h4bor.vercel.app](https://h4bor.vercel.app)**
 
-> The hosted backend is offline, so the live demo can't pull real-time data — the frontend loads but vessel data will be empty. Run it locally with the Quick Start below to see the full pipeline. If you'd like to help keep this project hosted, [sponsor on GitHub](https://github.com/sponsors/Smokeybear10). Every bit goes straight to hosting.
+Live AIS follows the area you're viewing. Pan anywhere in the world and zoom into a coast or port to receive vessel reports. Coverage depends on AISStream's receivers. The free backend sleeps when idle and can take about a minute to reconnect; the browser-only demo remains available.
 
 Maritime awareness and operator decision-support platform for contested littoral defense.
 
@@ -220,7 +220,7 @@ HarborOS ships runnable out of the box — seeded demo data, simulated satellite
 
 | Variable | Purpose | Required? | Source |
 |----------|---------|-----------|--------|
-| `AISSTREAM_API_KEY` | Live AIS vessel tracks across nine sectors | Recommended | [aisstream.io](https://aisstream.io/) |
+| `AISSTREAM_API_KEY` | Live AIS vessel tracks for active map views | Recommended | [aisstream.io](https://aisstream.io/) |
 | `CDSE_CLIENT_ID` | Real Sentinel-2 optical imagery (verification overlays) | Optional | [dataspace.copernicus.eu](https://dataspace.copernicus.eu) |
 | `CDSE_CLIENT_SECRET` | Paired secret for Copernicus OAuth | Optional | (same) |
 | `HARBOROS_DB` | Custom SQLite path | Optional | Defaults to `./harboros.db` |
@@ -229,7 +229,7 @@ US National Weather Service (NWS) is used for wind/visibility context and requir
 
 ### 1. AISStream — live vessel traffic (recommended)
 
-Without this, the map shows seeded demo vessels only. With it, real-time AIS tracks stream into all nine sectors.
+Without this, use the simulated demo. With it, the backend subscribes to the areas visitors are viewing, using one shared AIS connection. Wide world views prompt you to zoom in. Up to eight active views can share the free service; inactive views expire after 45 seconds.
 
 1. Sign up at [aisstream.io](https://aisstream.io/) — free tier works for development.
 2. Copy the API key from the dashboard.
@@ -239,7 +239,7 @@ Without this, the map shows seeded demo vessels only. With it, real-time AIS tra
 export AISSTREAM_API_KEY="your_aisstream_key"
 ```
 
-The ingest banner on the dashboard shows `CONNECTED · AISSTREAM` once the handshake succeeds. Expect vessels to populate over a minute or two as they broadcast.
+The map shows `Live AIS connected` once the handshake succeeds. Reports appear as vessels broadcast; an empty area does not necessarily mean no ships are present.
 
 ### 2. Copernicus Sentinel-2 — real satellite imagery (optional)
 
