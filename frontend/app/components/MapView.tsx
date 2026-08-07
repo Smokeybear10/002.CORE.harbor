@@ -26,7 +26,7 @@ interface MapViewProps {
 }
 
 const vesselColor = riskHex;
-const HEATMAP_ZOOM_THRESHOLD = 10; // Below this zoom: heatmap. At or above: individual markers.
+const SHIP_MARKER_ZOOM = 10;
 
 function geofenceColor(zoneType: string): string {
   switch (zoneType) {
@@ -258,7 +258,7 @@ export default function MapView({
   const [satelliteTiles, setSatelliteTiles] = useState<SatelliteTileSource | null>(null);
   const hideNormal = false;
   const [zoomLevel, setZoomLevel] = useState(isDemo ? 12.5 : 2);
-  const showMarkers = zoomLevel >= HEATMAP_ZOOM_THRESHOLD;
+  const showMarkers = zoomLevel >= SHIP_MARKER_ZOOM;
   const centerChangeRef = useRef(onMapCenterChange);
   const viewportChangeRef = useRef(onViewportChange);
   const mapClickRef = useRef(onMapClick);
@@ -307,8 +307,7 @@ export default function MapView({
     };
   }, [api]);
 
-  // Build heatmap GeoJSON from vessels
-  const updateHeatmap = useCallback(() => {
+  const updateVesselPoints = useCallback(() => {
     const map = mapRef.current;
     if (!map || !styleLoadedRef.current) return;
 
@@ -320,49 +319,60 @@ export default function MapView({
           type: "Point" as const,
           coordinates: [v.latest_position!.longitude, v.latest_position!.latitude],
         },
-        properties: {},
+        properties: {
+          id: v.id,
+          name: v.name,
+          mmsi: v.mmsi,
+          color: v.is_inactive || v.is_resolved ? "#64748b" : vesselColor(v.risk_score),
+          selected: v.id === selectedVesselId,
+        },
       }));
 
     const geojson = { type: "FeatureCollection" as const, features };
 
-    if (map.getSource("vessel-heat")) {
-      (map.getSource("vessel-heat") as maplibregl.GeoJSONSource).setData(geojson);
+    if (map.getSource("vessel-points")) {
+      (map.getSource("vessel-points") as maplibregl.GeoJSONSource).setData(geojson);
     } else {
-      map.addSource("vessel-heat", { type: "geojson", data: geojson });
+      map.addSource("vessel-points", { type: "geojson", data: geojson });
 
       map.addLayer({
-        id: "vessel-heatmap",
-        type: "heatmap",
-        source: "vessel-heat",
+        id: "vessel-dots",
+        type: "circle",
+        source: "vessel-points",
+        maxzoom: SHIP_MARKER_ZOOM,
+        layout: { "circle-sort-key": ["case", ["get", "selected"], 1, 0] },
         paint: {
-          "heatmap-weight": 1,
-          "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.6, 10, 1.2],
-          "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 8, 5, 25, 10, 40],
-          "heatmap-color": [
-            "interpolate", ["linear"], ["heatmap-density"],
-            0, "rgba(0,0,0,0)",
-            0.1, "rgba(87,113,134,0.2)",
-            0.3, "rgba(105,135,157,0.4)",
-            0.5, "rgba(131,159,179,0.6)",
-            0.7, "rgba(162,187,205,0.75)",
-            1, "rgba(209,223,233,0.9)",
+          "circle-radius": [
+            "interpolate", ["linear"], ["zoom"],
+            2, ["case", ["get", "selected"], 5, 3],
+            9, ["case", ["get", "selected"], 7, 4.5],
           ],
-          "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.9, 10, 0],
+          "circle-color": ["get", "color"],
+          "circle-stroke-color": ["case", ["get", "selected"], "#f8fafc", "#0f172a"],
+          "circle-stroke-width": ["case", ["get", "selected"], 2, 1.25],
+          "circle-opacity": 1,
+        },
+      });
+      map.addLayer({
+        id: "vessel-hit-targets",
+        type: "circle",
+        source: "vessel-points",
+        maxzoom: SHIP_MARKER_ZOOM,
+        paint: {
+          "circle-radius": 22,
+          "circle-opacity": 0,
         },
       });
     }
-  }, [vessels]);
+  }, [vessels, selectedVesselId]);
 
   const updateMarkers = useCallback(() => {
     const map = mapRef.current;
     if (!map || !styleLoadedRef.current) return;
 
-    // Update heatmap data regardless of zoom
-    updateHeatmap();
-
     const currentVesselIds = new Set<string>();
 
-    // When zoomed out, hide all markers — heatmap is visible
+    // The canvas dots handle wider views without hundreds of DOM markers.
     if (!showMarkers) {
       Object.keys(markersRef.current).forEach((vesselId) => {
         markersRef.current[vesselId].marker.remove();
@@ -488,7 +498,7 @@ export default function MapView({
         delete markersRef.current[vesselId];
       }
     });
-  }, [vessels, selectedVesselId, hideNormal, showMarkers, updateHeatmap]);
+  }, [vessels, selectedVesselId, hideNormal, showMarkers]);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -515,6 +525,53 @@ export default function MapView({
     }
 
     mapRef.current = map;
+    const tooltip = document.createElement("div");
+    tooltip.className = "pointer-events-none absolute z-20 max-w-[240px] rounded border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 shadow-lg";
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.style.display = "none";
+    map.getContainer().appendChild(tooltip);
+
+    const hideVesselTooltip = () => {
+      tooltip.style.display = "none";
+      map.getCanvas().style.cursor = "";
+    };
+    const vesselAtPoint = (event: maplibregl.MapMouseEvent) => {
+      if (map.getZoom() >= SHIP_MARKER_ZOOM || !map.getLayer("vessel-hit-targets")) return;
+      const features = map.queryRenderedFeatures(event.point, { layers: ["vessel-hit-targets"] });
+      const distance = (feature: maplibregl.MapGeoJSONFeature) => {
+        if (feature.geometry.type !== "Point") return Infinity;
+        const [longitude, latitude] = feature.geometry.coordinates;
+        const wrappedLongitude = longitude + Math.round((map.getCenter().lng - longitude) / 360) * 360;
+        const point = map.project([wrappedLongitude, latitude]);
+        return Math.hypot(point.x - event.point.x, point.y - event.point.y);
+      };
+      return features.sort((a, b) => distance(a) - distance(b))[0];
+    };
+    const showVesselTooltip = (event: maplibregl.MapMouseEvent) => {
+      const feature = vesselAtPoint(event);
+      if (!feature) {
+        hideVesselTooltip();
+        return;
+      }
+      map.getCanvas().style.cursor = "pointer";
+      tooltip.textContent = `${feature.properties.name} · ${feature.properties.mmsi}`;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${Math.max(12, Math.min(event.point.x + 14, map.getContainer().clientWidth - tooltip.offsetWidth - 12))}px`;
+      tooltip.style.top = `${Math.max(12, Math.min(event.point.y + 14, map.getContainer().clientHeight - tooltip.offsetHeight - 12))}px`;
+    };
+    const handleMapClick = (event: maplibregl.MapMouseEvent) => {
+      const vesselId = vesselAtPoint(event)?.properties.id;
+      if (typeof vesselId === "string") {
+        hideVesselTooltip();
+        onSelectVesselRef.current(vesselId);
+        return;
+      }
+      mapClickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
+    };
+    map.on("mousemove", showVesselTooltip);
+    map.on("click", handleMapClick);
+    map.getCanvas().addEventListener("mouseleave", hideVesselTooltip);
+
     let manualMove = false;
     const reportViewport = () => {
       const bounds = map.getBounds();
@@ -528,9 +585,13 @@ export default function MapView({
       }, manualMove);
       manualMove = false;
     };
-    map.on("movestart", (event) => { manualMove = !!event.originalEvent; });
+    map.on("movestart", (event) => {
+      manualMove = !!event.originalEvent;
+      hideVesselTooltip();
+    });
     map.on("resize", reportViewport);
     map.on("style.load", () => {
+      hideVesselTooltip();
       styleLoadedRef.current = true;
       setStyleVersion((version) => version + 1);
     });
@@ -557,18 +618,22 @@ export default function MapView({
         setZoomLevel(map.getZoom());
       });
 
-      map.on("click", (event) => {
-        mapClickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
-      });
-
     });
 
     return () => {
+      map.off("mousemove", showVesselTooltip);
+      map.off("click", handleMapClick);
+      map.getCanvas().removeEventListener("mouseleave", hideVesselTooltip);
+      tooltip.remove();
       map.remove();
       mapRef.current = null;
       styleLoadedRef.current = false;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    updateVesselPoints();
+  }, [updateVesselPoints, styleVersion]);
 
   useEffect(() => {
     updateMarkers();
