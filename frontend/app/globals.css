@@ -181,8 +181,9 @@ body > *:not(.ambient-glow) {
 
 .harbor-workspace {
   overflow: clip;
-  --workspace-surface: #111923;
-  --workspace-border: rgba(255, 255, 255, 0.11);
+  color-scheme: dark;
+  --workspace-surface: #151a20;
+  --workspace-border: #30363d;
   --map-panel-top: 120px;
   --map-panel-bottom: 16px;
   --map-tools-bottom: 36px;
@@ -202,14 +203,15 @@ body > *:not(.ambient-glow) {
 .workspace-panel {
   background: var(--workspace-surface);
   border: 1px solid var(--workspace-border);
-  border-radius: 8px;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
 }
 .workspace-panel :is(button, a) { min-height: 44px; }
 .workspace-panel :is(.text-slate-500, .text-slate-600) { color: #94a3b8; }
 .workspace-panel :is(.text-\[8px\], .text-\[9px\], .text-\[9\.5px\], .text-\[10px\], .text-\[10\.5px\]) {
   font-size: 12px;
 }
-.workspace-panel p { font-size: 13px; line-height: 1.65; }
+.workspace-panel p { font-size: 14px; line-height: 1.6; }
 .workspace-panel > div { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-panel { animation: none !important; }
