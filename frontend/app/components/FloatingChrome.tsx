@@ -78,7 +78,7 @@ export default function FloatingChrome({
 
   // Lazy-fetch vessel counts per region when dropdown opens. Refresh every 30s while open.
   useEffect(() => {
-    if (!regionOpen) return;
+    if (!regionOpen || !isDemo) return;
     const keys = Object.keys(regions);
     if (keys.length === 0) return;
     let cancelled = false;
@@ -120,7 +120,7 @@ export default function FloatingChrome({
 
   const activeLabel = activeRegion
     ? shortName(activeRegion, regions[activeRegion]?.name ?? activeRegion)
-    : "All monitored regions";
+    : isDemo ? "All monitored regions" : "Explore worldwide";
 
   const controlClass = "min-h-11 min-w-11 disabled:cursor-not-allowed disabled:opacity-40 items-center justify-center gap-2 rounded-md px-3 text-[13px] text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white";
   const statusLabel = loading ? (isDemo ? "Loading demo" : "Connecting to AIS") : isDemo ? "Demo · simulated traffic" : !connectionOk ? "Live data offline" : !statusKnown ? "Feed status unavailable" : isLive ? "Live AIS connected" : "AIS feed disconnected";
@@ -154,13 +154,14 @@ export default function FloatingChrome({
         {regionOpen && (
           <div id="region-options" className="absolute top-[calc(100%+8px)] left-0 max-h-[60dvh] w-[280px] max-w-[calc(100vw-40px)] overflow-y-auto rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5 shadow-lg">
             <div className="border-b border-[var(--workspace-border)] px-3 pb-3 pt-2">
-              <h2 className="text-sm font-medium text-slate-200">{isDemo ? "Demo coverage" : "Live coverage"}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">{isDemo ? "Simulated vessel traffic in LA / Long Beach." : "Vessel reports are collected in the areas listed below."}</p>
+              <h2 className="text-sm font-medium text-slate-200">{isDemo ? "Demo coverage" : "Explore worldwide"}</h2>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">{isDemo ? "Simulated vessel traffic in LA / Long Beach." : "Live AIS follows your map. Pan anywhere and zoom in, or jump to a location below."}</p>
             </div>
             {Object.keys(regions).length > 1 && <RegionItem
-              name="All monitored regions"
+              name={isDemo ? "All monitored regions" : "World map"}
               count={totalCount}
               loading={countsLoading && totalCount === null}
+              showCount={isDemo}
               active={activeRegion === null}
               onClick={() => { onSelectRegion(null); setRegionOpen(false); }}
             />}
@@ -170,6 +171,7 @@ export default function FloatingChrome({
                 name={shortName(key, regions[key].name)}
                 count={counts[key] ?? null}
                 loading={countsLoading && counts[key] == null}
+                showCount={isDemo}
                 active={activeRegion === key}
                 onClick={() => { onSelectRegion(key); setRegionOpen(false); }}
               />
@@ -193,7 +195,7 @@ export default function FloatingChrome({
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} />
         <span className="hidden lg:inline">{statusLabel}</span>
         <span className="lg:hidden">{loading ? "Connecting…" : isDemo ? "Demo" : !connectionOk ? "AIS offline" : !statusKnown ? "Status unknown" : isLive ? "Live AIS" : "AIS disconnected"}</span>
-        {!loading && connectionOk && <span className="hidden border-l border-[var(--workspace-border)] pl-2 xl:inline">{vesselCount} vessels</span>}
+        {!loading && connectionOk && <span className="hidden border-l border-[var(--workspace-border)] pl-2 xl:inline">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}</span>}
       </div>
       <button type="button" data-tour="analytics-btn" aria-label="Analytics" disabled={(loading || !connectionOk) && !analyticsOpen} aria-pressed={analyticsOpen} onClick={onToggleAnalytics} className={`inline-flex ${controlClass} order-3 sm:order-6 ${analyticsOpen ? "bg-white/[0.08] text-white" : ""}`}>
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -217,12 +219,14 @@ function RegionItem({
   loading,
   active,
   onClick,
+  showCount = true,
 }: {
   name: string;
   count: number | null;
   loading: boolean;
   active: boolean;
   onClick: () => void;
+  showCount?: boolean;
 }) {
   return (
     <button
@@ -234,11 +238,11 @@ function RegionItem({
     >
       <span className="font-medium truncate">{name}</span>
       <span className="flex items-center gap-2 shrink-0">
-        <span
+        {showCount && <span
           className="font-mono text-xs tabular-nums text-slate-400"
         >
           {loading ? "…" : count != null ? count.toLocaleString() : "—"}
-        </span>
+        </span>}
         {active && (
           <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-slate-200">
             <path d="M20 6L9 17l-5-5" />

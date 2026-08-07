@@ -1,6 +1,6 @@
 "use client";
 
-import { IS_FREE_HOSTED_API, type IngestionStatus } from "@/app/lib/api";
+import { IS_FREE_HOSTED_API, type IngestionStatus, type MapCoverage } from "@/app/lib/api";
 import { useDataSource } from "@/app/lib/data-source";
 
 type IngestBannerProps = {
@@ -10,11 +10,29 @@ type IngestBannerProps = {
   connectionOk: boolean;
   loading: boolean;
   onDemo: () => void;
+  coverage?: MapCoverage | null;
+  zoomRequired?: boolean;
+  vesselsTotal?: number;
 };
 
-export default function IngestBanner({ vesselCount, status, isLive, connectionOk, loading, onDemo }: IngestBannerProps) {
+export default function IngestBanner({ vesselCount, status, isLive, connectionOk, loading, onDemo, coverage, zoomRequired, vesselsTotal = 0 }: IngestBannerProps) {
   const { isDemo } = useDataSource();
-  if (isDemo || (!loading && connectionOk && isLive && vesselCount > 0)) return null;
+  if (isDemo) return null;
+  if (!loading && connectionOk && status?.available && (zoomRequired || coverage?.state === "busy" || isLive)) {
+    const busy = coverage?.state === "busy";
+    const limited = vesselsTotal > vesselCount;
+    if (!zoomRequired && !busy && coverage?.subscribed && vesselCount > 0 && !limited) return null;
+    return (
+      <section role="status" aria-label="Map coverage" className="absolute left-3 top-[var(--map-panel-top)] z-20 w-[350px] max-w-[calc(100vw-72px)] rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-4">
+        <h2 className="text-sm font-medium text-slate-100">{zoomRequired ? "Zoom in to load live AIS" : busy ? "Live map is busy" : !coverage?.subscribed ? "Connecting to this area" : limited ? `Showing ${vesselCount} of ${vesselsTotal} vessels` : "Listening for vessel reports"}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-400">{zoomRequired
+          ? "Explore anywhere in the world. Zoom into a coast or port to receive live vessel reports."
+          : busy ? "The free service is handling other map views. This area will retry automatically."
+          : limited ? "Zoom in to see more detail. Coverage follows your map."
+          : "Reports appear as AISStream receives them. Coverage varies by location."}</p>
+      </section>
+    );
+  }
 
   const needsSetup = connectionOk && status?.available === false;
   const title = loading ? "Connecting to live AIS"

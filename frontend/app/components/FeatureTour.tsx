@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useDataSource } from "@/app/lib/data-source";
 
 interface FeatureTourProps {
   active: boolean;
@@ -36,6 +37,7 @@ export default function FeatureTour({
   onDeselectVessel,
   activeRegion,
 }: FeatureTourProps) {
+  const { isDemo } = useDataSource();
   const [step, setStep] = useState(0);
   const [visible, setVisible] = useState(false);
   const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
@@ -66,8 +68,8 @@ export default function FeatureTour({
     },
     {
       title: "Coverage",
-      description: "The region menu lists the areas monitored by this deployment. Panning the map does not change the live feed’s coverage.",
-      hint: "Open the region menu to see coverage.",
+      description: isDemo ? "This demo replays simulated traffic in LA / Long Beach. Switch to live mode to explore other locations." : "Live AIS follows the area you’re viewing. Pan anywhere in the world and zoom into a coast or port. Reports appear where AISStream has coverage.",
+      hint: "Use the region menu to jump to a location.",
       target: "regions",
       position: "bottom",
       interactive: true,

@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models.domain import VesselORM, PositionReportORM
+from app.models.domain import VesselORM, PositionReportORM, AlertORM, VerificationRequestORM, RiskHistoryORM
 from app.data_sources.aisstream_adapter import AISStreamClient
 from app.services.alert_service import generate_alerts_for_all_vessels
 
@@ -30,6 +30,10 @@ class IngestionService:
         self.client = AISStreamClient(api_key=api_key, region_keys=region_keys)
         self._task: asyncio.Task | None = None
         self._alert_task: asyncio.Task | None = None
+        self._flush_task: asyncio.Task | None = None
+        self._pending_messages: dict[tuple[str, str], dict] = {}
+        self._unmatched_static: dict[str, dict] = {}
+        self._scan_offset = 0
         self._running = False
         self._vessels_seen: set[str] = set()
         self._positions_ingested = 0
@@ -48,7 +52,11 @@ class IngestionService:
             "vessels_created": self._vessels_created,
             "vessels_updated": self._vessels_updated,
             "last_alert_run": self._last_alert_run.isoformat() if self._last_alert_run else None,
-            "stream_stats": self.client.stats,
+            "stream_stats": {
+                **self.client.stats,
+                "coverage_mode": "map" if self.client.applied_boxes != self.client.bounding_boxes else "configured",
+                "bounding_boxes": self.client.applied_boxes,
+            },
         }
 
     async def start(self):
@@ -63,6 +71,7 @@ class IngestionService:
 
         self._running = True
         self._task = asyncio.create_task(self._ingest_loop())
+        self._flush_task = asyncio.create_task(self._flush_loop())
         self._alert_task = asyncio.create_task(self._alert_loop())
         logger.info("Ingestion service started")
 
@@ -87,36 +96,46 @@ class IngestionService:
                 pass
             self._alert_task = None
 
+        if self._flush_task:
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+            self._flush_task = None
+        if self._pending_messages:
+            batch = list(self._pending_messages.values())
+            self._pending_messages.clear()
+            await asyncio.to_thread(self._flush_batch, batch)
+
         logger.info("Ingestion service stopped")
 
     async def _ingest_loop(self):
         """Main ingestion loop — connect and process messages."""
-        batch: list[dict] = []
-        batch_flush_interval = 2.0  # seconds
-        last_flush = asyncio.get_event_loop().time()
-
         try:
             async for message in self.client.connect():
                 if not self._running:
                     break
 
-                batch.append(message)
-                now = asyncio.get_event_loop().time()
-
-                # Flush batch every N seconds or every 50 messages
-                if len(batch) >= 50 or (now - last_flush) >= batch_flush_interval:
-                    self._flush_batch(batch)
-                    batch = []
-                    last_flush = now
+                key = (message["type"], message["mmsi"])
+                previous = self._pending_messages.get(key)
+                if previous and message["timestamp"] <= previous["timestamp"]:
+                    continue
+                if key not in self._pending_messages and len(self._pending_messages) >= 1000:
+                    self._pending_messages.pop(next(iter(self._pending_messages)))
+                self._pending_messages[key] = message
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"Ingestion loop error: {e}")
-        finally:
-            # Flush remaining
+
+    async def _flush_loop(self) -> None:
+        while self._running:
+            await asyncio.sleep(2)
+            batch = list(self._pending_messages.values())
+            self._pending_messages.clear()
             if batch:
-                self._flush_batch(batch)
+                await asyncio.to_thread(self._flush_batch, batch)
 
     def _flush_batch(self, batch: list[dict]):
         """Write a batch of AIS messages to the database."""
@@ -168,7 +187,12 @@ class IngestionService:
             if region:
                 vessel.region = region
 
-        self._vessels_seen.add(mmsi)
+        static = self._unmatched_static.pop(mmsi, None)
+        if static:
+            self._upsert_vessel_static(db, static)
+
+        if len(self._vessels_seen) < 5000:
+            self._vessels_seen.add(mmsi)
 
         # AIS protocol: raw SOG value 1023 (102.3 kt) means "not available".
         # Heading 511 also means "not available". Filter these sentinel values.
@@ -176,10 +200,28 @@ class IngestionService:
         if sog is not None and sog >= 102.2:
             sog = None  # Discard AIS "not available" sentinel
 
-        # Insert position report
+        timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None) if timestamp.tzinfo else timestamp
+        latest = db.query(PositionReportORM).filter_by(vessel_id=vessel.id).order_by(PositionReportORM.timestamp.desc()).first()
+        if latest and timestamp <= latest.timestamp:
+            return
+        # Keep the newest position current without storing every AIS transmission.
+        # A separate sample every 30 seconds retains a bounded movement trail.
+        if latest and (timestamp - latest.timestamp).total_seconds() < 30:
+            bucket = int(timestamp.replace(tzinfo=timezone.utc).timestamp()) // 30
+            if bucket == int(latest.timestamp.replace(tzinfo=timezone.utc).timestamp()) // 30:
+                latest.timestamp = timestamp
+                latest.latitude = data["latitude"]
+                latest.longitude = data["longitude"]
+                latest.speed_over_ground = sog
+                latest.course_over_ground = data.get("course_over_ground")
+                latest.heading = data.get("heading") if data.get("heading") != 511 else None
+                latest.nav_status = data.get("nav_status")
+                self._positions_ingested += 1
+                return
+
         pos = PositionReportORM(
             vessel_id=vessel.id,
-            timestamp=timestamp.replace(tzinfo=None) if timestamp.tzinfo else timestamp,
+            timestamp=timestamp,
             latitude=data["latitude"],
             longitude=data["longitude"],
             speed_over_ground=sog,
@@ -197,18 +239,11 @@ class IngestionService:
 
         vessel = db.query(VesselORM).filter(VesselORM.mmsi == mmsi).first()
         if not vessel:
-            vessel = VesselORM(
-                id=f"ais-{mmsi}",
-                mmsi=mmsi,
-                name=data.get("name") or f"MMSI {mmsi}",
-                vessel_type=data.get("vessel_type", "other"),
-                flag_state="Unknown",
-                inspection_deficiencies=0,
-            )
-            db.add(vessel)
-            self._vessels_created += 1
-        else:
-            self._vessels_updated += 1
+            if mmsi not in self._unmatched_static and len(self._unmatched_static) >= 1000:
+                self._unmatched_static.pop(next(iter(self._unmatched_static)))
+            self._unmatched_static[mmsi] = msg
+            return
+        self._vessels_updated += 1
 
         # Update fields if we got better data
         if data.get("name") and data["name"] != vessel.name:
@@ -228,7 +263,8 @@ class IngestionService:
         if data.get("draft"):
             vessel.draft = data["draft"]
 
-        self._vessels_seen.add(mmsi)
+        if len(self._vessels_seen) < 5000:
+            self._vessels_seen.add(mmsi)
 
     async def _alert_loop(self):
         """Periodically re-run anomaly detection and prune old data."""
@@ -250,7 +286,13 @@ class IngestionService:
     def _run_alert_scan(self, archive: bool) -> None:
         db = SessionLocal()
         try:
-            alerts = generate_alerts_for_all_vessels(db)
+            self._prune_live_cache(db)
+            alerts = generate_alerts_for_all_vessels(
+                db, vessel_limit=500, vessel_offset=self._scan_offset,
+                observed_since=self.client.coverage_started,
+                coverage_windows=self.client.coverage_windows,
+            ) if self.client.is_connected else []
+            self._scan_offset += 500
             self._last_alert_run = datetime.now(timezone.utc)
             if alerts:
                 logger.info(f"Alert scan: {len(alerts)} alerts generated/updated")
@@ -264,6 +306,30 @@ class IngestionService:
             logger.error(f"Alert generation error: {e}")
         finally:
             db.close()
+
+    def _prune_live_cache(self, db: Session) -> None:
+        live = PositionReportORM.vessel_id.like("ais-%")
+        oldest_kept = db.query(PositionReportORM.id).filter(live).order_by(PositionReportORM.id.desc()).offset(49_999).first()
+        if oldest_kept:
+            from app.services.archive_service import archive_old_positions
+            archive_old_positions(db=db, before_id=oldest_kept[0])
+        orphan_ids = db.query(VesselORM.id).filter(
+            VesselORM.id.like("ais-%"),
+            ~db.query(PositionReportORM.id).filter(PositionReportORM.vessel_id == VesselORM.id).exists(),
+            ~db.query(AlertORM.id).filter(AlertORM.vessel_id == VesselORM.id).exists(),
+            ~db.query(VerificationRequestORM.id).filter(VerificationRequestORM.vessel_id == VesselORM.id).exists(),
+        ).subquery()
+        from sqlalchemy import select
+        db.query(RiskHistoryORM).filter(RiskHistoryORM.vessel_id.in_(select(orphan_ids.c.id))).delete(synchronize_session=False)
+        db.query(VesselORM).filter(VesselORM.id.in_(select(orphan_ids.c.id))).delete(synchronize_session=False)
+        db.query(AlertORM).filter(
+            AlertORM.vessel_id.like("ais-%"), AlertORM.status == "active",
+            ~db.query(PositionReportORM.id).filter(PositionReportORM.vessel_id == AlertORM.vessel_id).exists(),
+        ).update({"status": "resolved", "explanation": "Position history is no longer retained for this vessel."}, synchronize_session=False)
+        risk_cutoff = db.query(RiskHistoryORM.id).order_by(RiskHistoryORM.id.desc()).offset(49_999).first()
+        if risk_cutoff:
+            db.query(RiskHistoryORM).filter(RiskHistoryORM.id < risk_cutoff[0]).delete(synchronize_session=False)
+        db.commit()
 
 
 
