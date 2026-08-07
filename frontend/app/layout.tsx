@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const sans = IBM_Plex_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const mono = IBM_Plex_Mono({
   variable: "--font-mono",
+  weight: ["400", "500", "600"],
   subsets: ["latin"],
   display: "swap",
 });
@@ -63,7 +64,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
+      className={`${sans.variable} ${mono.variable} h-full antialiased`}
     >
       <head>
         {process.env.NEXT_PUBLIC_DATA_MODE === "live" && apiOrigin && <link rel="preconnect" href={apiOrigin} crossOrigin="anonymous" />}
