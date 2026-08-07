@@ -63,7 +63,7 @@ export default function ShortcutOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-[#24393d]/20 p-4"
       onClick={() => setOpen(false)}
     >
       <div
@@ -84,13 +84,13 @@ export default function ShortcutOverlay() {
           }
         }}
       >
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.08]">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--workspace-border)]">
           <h2 id="keyboard-shortcuts-title" className="text-base font-medium text-slate-100">Keyboard shortcuts</h2>
           <button
             ref={closeRef}
             type="button"
             onClick={() => setOpen(false)}
-            className="w-11 h-11 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] transition-colors"
+            className="w-11 h-11 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-[var(--workspace-subtle)] transition-colors"
             aria-label="Close shortcuts"
           >
             <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
@@ -113,7 +113,7 @@ export default function ShortcutOverlay() {
                       {s.keys.map((k) => (
                         <kbd
                           key={k}
-                          className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-white/[0.04] border border-[var(--workspace-border)] text-slate-300 min-w-[24px] text-center"
+                          className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] text-slate-300 min-w-[24px] text-center"
                         >
                           {k}
                         </kbd>

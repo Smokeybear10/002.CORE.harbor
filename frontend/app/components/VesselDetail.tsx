@@ -119,7 +119,7 @@ function RiskSparkline({ data }: { data: RiskHistoryPoint[] }) {
   const trendIcon = trend > 5 ? "\u2197" : trend < -5 ? "\u2198" : "\u2192";
   const trendColor = trend > 5 ? "text-red-400" : trend < -5 ? "text-green-400" : "text-slate-500";
 
-  const lineColor = last >= RISK_THRESHOLDS.escalate ? "#f87171" : last >= RISK_THRESHOLDS.verify ? "#fb923c" : last >= RISK_THRESHOLDS.monitor ? "#facc15" : "#8da5b7";
+  const lineColor = last >= RISK_THRESHOLDS.escalate ? "#a53735" : last >= RISK_THRESHOLDS.verify ? "#b6532b" : last >= RISK_THRESHOLDS.monitor ? "#9b641b" : "#355b69";
   const fillOpacity = "0.08";
 
   // Threshold y positions
@@ -150,13 +150,13 @@ function RiskSparkline({ data }: { data: RiskHistoryPoint[] }) {
             </linearGradient>
           </defs>
           {/* Threshold zone bands */}
-          <rect x={0} y={threshY(100)} width={w} height={threshY(RISK_THRESHOLDS.escalate) - threshY(100)} fill="#ef4444" opacity="0.04" />
-          <rect x={0} y={threshY(RISK_THRESHOLDS.escalate)} width={w} height={threshY(RISK_THRESHOLDS.verify) - threshY(RISK_THRESHOLDS.escalate)} fill="#f97316" opacity="0.04" />
-          <rect x={0} y={threshY(RISK_THRESHOLDS.verify)} width={w} height={threshY(RISK_THRESHOLDS.monitor) - threshY(RISK_THRESHOLDS.verify)} fill="#f59e0b" opacity="0.04" />
+          <rect x={0} y={threshY(100)} width={w} height={threshY(RISK_THRESHOLDS.escalate) - threshY(100)} fill="#a53735" opacity="0.04" />
+          <rect x={0} y={threshY(RISK_THRESHOLDS.escalate)} width={w} height={threshY(RISK_THRESHOLDS.verify) - threshY(RISK_THRESHOLDS.escalate)} fill="#b6532b" opacity="0.04" />
+          <rect x={0} y={threshY(RISK_THRESHOLDS.verify)} width={w} height={threshY(RISK_THRESHOLDS.monitor) - threshY(RISK_THRESHOLDS.verify)} fill="#9b641b" opacity="0.04" />
           {/* Threshold lines */}
-          <line x1={0} y1={threshY(RISK_THRESHOLDS.escalate)} x2={w} y2={threshY(RISK_THRESHOLDS.escalate)} stroke="#ef4444" strokeWidth="0.5" opacity="0.2" strokeDasharray="3,3" />
-          <line x1={0} y1={threshY(RISK_THRESHOLDS.verify)} x2={w} y2={threshY(RISK_THRESHOLDS.verify)} stroke="#f97316" strokeWidth="0.5" opacity="0.2" strokeDasharray="3,3" />
-          <line x1={0} y1={threshY(RISK_THRESHOLDS.monitor)} x2={w} y2={threshY(RISK_THRESHOLDS.monitor)} stroke="#f59e0b" strokeWidth="0.5" opacity="0.2" strokeDasharray="3,3" />
+          <line x1={0} y1={threshY(RISK_THRESHOLDS.escalate)} x2={w} y2={threshY(RISK_THRESHOLDS.escalate)} stroke="#a53735" strokeWidth="0.5" opacity="0.2" strokeDasharray="3,3" />
+          <line x1={0} y1={threshY(RISK_THRESHOLDS.verify)} x2={w} y2={threshY(RISK_THRESHOLDS.verify)} stroke="#b6532b" strokeWidth="0.5" opacity="0.2" strokeDasharray="3,3" />
+          <line x1={0} y1={threshY(RISK_THRESHOLDS.monitor)} x2={w} y2={threshY(RISK_THRESHOLDS.monitor)} stroke="#9b641b" strokeWidth="0.5" opacity="0.2" strokeDasharray="3,3" />
           {/* Gradient fill */}
           <path d={fillPath} fill="url(#sparkFill)" />
           {/* Line */}
@@ -408,7 +408,7 @@ export default function VesselDetailPanel({
   if (showReport && exportReport) {
     return (
       <div
-        className="workspace-panel absolute top-[max(var(--map-panel-top),32dvh)] sm:top-[var(--map-panel-top)] bottom-[var(--map-panel-bottom)] right-3 w-[400px] max-w-[calc(100vw-24px)] z-40 flex flex-col overflow-y-auto shadow-xl scroll-thin"
+        className="workspace-panel absolute top-[max(var(--map-panel-top),32dvh)] sm:top-[var(--map-panel-top)] bottom-[var(--map-panel-bottom)] right-3 w-[400px] max-w-[calc(100vw-24px)] z-40 flex flex-col overflow-y-auto scroll-thin"
         style={{ animation: closing ? "slide-out-right 0.2s ease-in forwards" : "slide-in-right 0.25s ease-out" }}
       >
         <ReportView report={exportReport} onBack={() => setShowReport(false)} />
@@ -419,7 +419,7 @@ export default function VesselDetailPanel({
   return (
     <div
       data-tour="vessel-detail"
-      className="workspace-panel absolute top-[max(var(--map-panel-top),32dvh)] sm:top-[var(--map-panel-top)] bottom-[var(--map-panel-bottom)] right-3 w-[400px] max-w-[calc(100vw-24px)] z-40 flex flex-col overflow-y-auto shadow-xl scroll-thin"
+      className="workspace-panel absolute top-[max(var(--map-panel-top),32dvh)] sm:top-[var(--map-panel-top)] bottom-[var(--map-panel-bottom)] right-3 w-[400px] max-w-[calc(100vw-24px)] z-40 flex flex-col overflow-y-auto scroll-thin"
       style={{ animation: closing ? "slide-out-right 0.2s ease-in forwards" : "slide-in-right 0.25s ease-out" }}
     >
       {/* Header */}
@@ -443,7 +443,7 @@ export default function VesselDetailPanel({
             <button
               onClick={onClose}
               aria-label="Close vessel details"
-              className="w-11 h-11 rounded flex items-center justify-center text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 transition-colors"
+              className="w-11 h-11 rounded flex items-center justify-center text-slate-400 hover:bg-[var(--workspace-subtle)] hover:text-slate-100 transition-colors"
           >
             <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -480,7 +480,7 @@ export default function VesselDetailPanel({
                 {hasRiskScore ? action : "Pending"}
               </span>
             </div>
-            <div className="w-full bg-[#111827] rounded-full h-1 overflow-hidden">
+            <div className="w-full bg-[var(--workspace-subtle)] rounded-full h-1 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   riskScore >= RISK_THRESHOLDS.escalate ? "bg-red-400" : riskScore >= RISK_THRESHOLDS.verify ? "bg-orange-400" : riskScore >= RISK_THRESHOLDS.monitor ? "bg-yellow-400" : "bg-slate-400"
@@ -505,21 +505,21 @@ export default function VesselDetailPanel({
             <button
               onClick={() => handleAlertAction("acknowledge")}
               disabled={actionLoading !== null}
-              className="min-h-11 flex-1 py-2 px-2 bg-slate-200 hover:bg-white disabled:opacity-50 text-slate-900 text-xs font-medium rounded transition-colors"
+              className="min-h-11 flex-1 py-2 px-2 bg-[#355b69] hover:bg-[#294955] disabled:opacity-50 text-[#fffdf7] text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "acknowledge" ? "..." : "Acknowledge"}
             </button>
             <button
               onClick={() => handleAlertAction("dismiss")}
               disabled={actionLoading !== null}
-              className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-white/[0.06] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
+              className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "dismiss" ? "..." : "Dismiss"}
             </button>
             <button
               onClick={() => handleAlertAction("pin")}
               disabled={actionLoading !== null}
-              className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-white/[0.06] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
+              className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "pin" ? "..." : "Pin"}
             </button>
@@ -580,10 +580,10 @@ export default function VesselDetailPanel({
           <div className="p-5 border-b border-[var(--workspace-border)]">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-slate-200">Edge Node Detection</h3>
-              <span className="text-[9px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded">{nodeId}</span>
+              <span className="text-xs font-mono text-slate-400">{nodeId}</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
+              <div className="bg-[var(--workspace-subtle)] rounded-lg p-3 border border-[var(--workspace-border)]">
                 <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Range</span>
                 {displayRange != null ? (
                   <>
@@ -593,12 +593,11 @@ export default function VesselDetailPanel({
                   </>
                 ) : (
                   <span className="text-sm font-mono text-slate-600 flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500/50 animate-pulse" />
                     loading
                   </span>
                 )}
               </div>
-              <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
+              <div className="bg-[var(--workspace-subtle)] rounded-lg p-3 border border-[var(--workspace-border)]">
                 <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Velocity</span>
                 {displayVel != null ? (
                   <>
@@ -607,16 +606,15 @@ export default function VesselDetailPanel({
                   </>
                 ) : (
                   <span className="text-sm font-mono text-slate-600 flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500/50 animate-pulse" />
                     loading
                   </span>
                 )}
               </div>
-              <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
+              <div className="bg-[var(--workspace-subtle)] rounded-lg p-3 border border-[var(--workspace-border)]">
                 <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Bearing</span>
                 <span className="text-lg font-bold font-mono text-slate-300">{heading != null ? `${heading.toFixed(0)}°` : "—"}</span>
               </div>
-              <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
+              <div className="bg-[var(--workspace-subtle)] rounded-lg p-3 border border-[var(--workspace-border)]">
                 <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Confidence</span>
                 <span className="text-lg font-bold font-mono text-blue-400">{(edgeSignal.severity * 100).toFixed(0)}%</span>
               </div>
@@ -649,7 +647,7 @@ export default function VesselDetailPanel({
                 Fullscreen
               </a>
             </div>
-            <div className="rounded-lg overflow-hidden bg-black aspect-video border border-[#1a2235]">
+            <div className="overflow-hidden bg-[#101820] aspect-video border border-[var(--workspace-border)]">
               <iframe
                 src={streamUrl}
                 title="SeaPod live camera feed"
@@ -668,7 +666,7 @@ export default function VesselDetailPanel({
             <h3 className="text-sm font-medium text-slate-200">Signals</h3>
             <span className="text-xs text-slate-400">{vessel.anomaly_signals.length} detected</span>
           </div>
-          <div className="divide-y divide-white/[0.07]">
+          <div className="divide-y divide-[var(--workspace-border)]">
             {vessel.anomaly_signals.map((signal, i) => {
               const severity = severityLabel(signal.severity);
               return (
@@ -745,7 +743,7 @@ export default function VesselDetailPanel({
               <button
                 onClick={handleVerify}
                 disabled={verifyLoading}
-                className="w-full py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:bg-[#111827] disabled:border-[#1a2235] disabled:text-slate-600 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
+                className="w-full py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:bg-[var(--workspace-subtle)] disabled:border-[var(--workspace-border)] disabled:text-slate-600 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
               >
                 {verifyLoading ? "Requesting..." : "Request Satellite Imagery"}
               </button>
@@ -755,14 +753,10 @@ export default function VesselDetailPanel({
       )}
 
       {!isDemo && riskScore >= RISK_THRESHOLDS.monitor && (
-        <div className="px-4 py-3 border-t border-[#1a2235]">
+        <div className="px-4 py-3 border-t border-[var(--workspace-border)]">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-slate-200">Imagery Browser</h3>
-            <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-md border ${
-              satelliteInfo?.configured
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                : "bg-slate-500/10 text-slate-400 border-slate-500/20"
-            }`}>
+            <span className="text-xs text-slate-400">
               {satelliteInfo?.configured ? "live" : "fallback"}
             </span>
           </div>
@@ -778,7 +772,7 @@ export default function VesselDetailPanel({
                 className={`text-[10px] py-1.5 rounded-md font-medium transition-all ${
                   imageryTarget === "vessel"
                     ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                    : "bg-[#111827] text-slate-500 border border-[#1a2235] hover:text-slate-300"
+                    : "bg-[var(--workspace-subtle)] text-slate-500 border border-[var(--workspace-border)] hover:text-slate-300"
                 }`}
               >
                 Vessel Area
@@ -790,7 +784,7 @@ export default function VesselDetailPanel({
                 className={`text-[10px] py-1.5 rounded-md font-medium transition-all ${
                   imageryTarget === "focus"
                     ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                    : "bg-[#111827] text-slate-500 border border-[#1a2235] hover:text-slate-300"
+                    : "bg-[var(--workspace-subtle)] text-slate-500 border border-[var(--workspace-border)] hover:text-slate-300"
                 } disabled:opacity-40 disabled:hover:text-slate-500`}
               >
                 Map Focus
@@ -805,7 +799,7 @@ export default function VesselDetailPanel({
                   value={imageryDateFrom}
                   max={imageryDateTo}
                   onChange={(event) => setImageryDateFrom(event.target.value)}
-                  className="bg-[#111827] border border-[#1a2235] rounded-md px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-slate-600"
+                  className="bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] rounded-md px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-slate-600"
                 />
               </label>
               <label className="flex flex-col gap-1">
@@ -816,7 +810,7 @@ export default function VesselDetailPanel({
                   min={imageryDateFrom}
                   max={todayIsoDate()}
                   onChange={(event) => setImageryDateTo(event.target.value)}
-                  className="bg-[#111827] border border-[#1a2235] rounded-md px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-slate-600"
+                  className="bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] rounded-md px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-slate-600"
                 />
               </label>
             </div>
@@ -830,7 +824,7 @@ export default function VesselDetailPanel({
                 step={5}
                 value={imageryCloudCover}
                 onChange={(event) => setImageryCloudCover(Math.min(100, Math.max(0, Number(event.target.value) || 0)))}
-                className="bg-[#111827] border border-[#1a2235] rounded-md px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-slate-600"
+                className="bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] rounded-md px-2 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-slate-600"
               />
             </label>
 
@@ -839,7 +833,7 @@ export default function VesselDetailPanel({
                 type="button"
                 onClick={() => void runImagerySearch()}
                 disabled={imageryLoading || !satelliteInfo?.configured}
-                className="flex-1 py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:bg-[#111827] disabled:border-[#1a2235] disabled:text-slate-600 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
+                className="flex-1 py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:bg-[var(--workspace-subtle)] disabled:border-[var(--workspace-border)] disabled:text-slate-600 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
               >
                 {imageryLoading ? "Searching..." : "Search Acquisitions"}
               </button>
@@ -887,7 +881,7 @@ export default function VesselDetailPanel({
                           className={`w-full text-left rounded-lg border p-3 transition-all ${
                             isActiveOverlay
                               ? "bg-blue-500/12 border-blue-500/30"
-                              : "bg-[#111827] border-[#1a2235] hover:border-slate-600"
+                              : "bg-[var(--workspace-subtle)] border-[var(--workspace-border)] hover:border-slate-600"
                           }`}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -915,7 +909,7 @@ export default function VesselDetailPanel({
                     })}
                   </div>
                 ) : !imageryLoading ? (
-                  <div className="rounded-lg border border-[#1a2235] bg-[#111827] p-3">
+                  <div className="rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-subtle)] p-3">
                     <p className="text-[10px] text-slate-400 leading-relaxed">
                       No acquisitions matched this search window.
                     </p>
@@ -946,12 +940,12 @@ export default function VesselDetailPanel({
             aria-label="Operator note"
             placeholder="Add a note…"
             rows={2}
-            className="w-full bg-white/[0.025] border border-[var(--workspace-border)] rounded p-3 text-sm text-slate-200 placeholder-slate-400 resize-y focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 transition-colors"
+            className="w-full bg-[var(--workspace-surface)] border border-[var(--workspace-border)] rounded p-3 text-sm text-slate-200 placeholder-slate-400 resize-y focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 transition-colors"
           />
           <button
             onClick={handleSaveNote}
             disabled={noteSaving || !noteText.trim()}
-            className="mt-2 min-h-11 py-2 px-4 border border-[var(--workspace-border)] hover:bg-white/[0.06] disabled:opacity-40 text-slate-200 text-sm font-medium rounded transition-colors"
+            className="mt-2 min-h-11 py-2 px-4 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-40 text-slate-200 text-sm font-medium rounded transition-colors"
           >
             {noteSaving ? "Saving…" : "Save note"}
           </button>
@@ -1006,7 +1000,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
   return (
     <>
       {/* Report Header */}
-      <div className="px-4 py-3 border-b border-white/[0.08] flex items-center gap-3">
+      <div className="px-4 py-3 border-b border-[var(--workspace-border)] flex items-center gap-3">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-slate-100 transition-colors uppercase tracking-[0.14em] font-medium shrink-0"
@@ -1043,8 +1037,8 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
         {/* Position Trail */}
         {trail?.length > 0 && (
           <Section title={`Position Trail · ${trail.length} points`}>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] overflow-hidden">
-              <div className="grid grid-cols-5 text-[9px] font-mono font-semibold text-slate-500 uppercase tracking-[0.14em] border-b border-white/[0.06]">
+            <div className="rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-subtle)] overflow-hidden">
+              <div className="grid grid-cols-5 text-[9px] font-mono font-semibold text-slate-500 uppercase tracking-[0.14em] border-b border-[var(--workspace-border)]">
                 <div className="px-2 py-1.5">Time</div>
                 <div className="px-2 py-1.5">Lat</div>
                 <div className="px-2 py-1.5">Lon</div>
@@ -1052,7 +1046,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
                 <div className="px-2 py-1.5">Course</div>
               </div>
               {trail.slice(0, 20).map((p, i) => (
-                <div key={i} className="grid grid-cols-5 text-[10px] font-mono tabular-nums text-slate-400 border-t border-white/[0.04] first:border-t-0">
+                <div key={i} className="grid grid-cols-5 text-[10px] font-mono tabular-nums text-slate-400 border-t border-[var(--workspace-border)] first:border-t-0">
                   <div className="px-2 py-1">{new Date(String(p.timestamp)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                   <div className="px-2 py-1">{Number(p.latitude).toFixed(4)}</div>
                   <div className="px-2 py-1">{Number(p.longitude).toFixed(4)}</div>
@@ -1061,7 +1055,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
                 </div>
               ))}
               {trail.length > 20 && (
-                <div className="text-center text-[9px] font-mono text-slate-600 py-1.5 border-t border-white/[0.04]">… {trail.length - 20} more</div>
+                <div className="text-center text-[9px] font-mono text-slate-600 py-1.5 border-t border-[var(--workspace-border)]">… {trail.length - 20} more</div>
               )}
             </div>
           </Section>
@@ -1072,7 +1066,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
           <Section title="Audit Trail">
             <div className="space-y-1.5">
               {audit.map((e, i) => (
-                <div key={i} className="flex items-start gap-2 text-[10.5px] py-1 border-t border-white/[0.04] first:border-t-0 first:pt-0">
+                <div key={i} className="flex items-start gap-2 text-[10.5px] py-1 border-t border-[var(--workspace-border)] first:border-t-0 first:pt-0">
                   <span className="text-slate-600 font-mono shrink-0 tabular-nums">{new Date(String(e.timestamp)).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                   <span className="text-slate-300">
                     <span className="font-semibold text-slate-200">{String(e.action)}</span>
@@ -1092,7 +1086,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
         )}
 
         {/* Footer */}
-        <div className="text-center text-[9px] font-mono tracking-[0.18em] uppercase text-slate-600 pt-3 pb-2 border-t border-white/[0.06]">
+        <div className="text-center text-[9px] font-mono tracking-[0.18em] uppercase text-slate-600 pt-3 pb-2 border-t border-[var(--workspace-border)]">
           {isDemo ? "Sample vessel report" : "AIS vessel report"}
         </div>
       </div>
@@ -1186,16 +1180,8 @@ function SatelliteVerificationResult({ verification, vesselPosition, onOverlay }
   return (
     <div className="space-y-3">
       {/* Status header */}
-      <div className="bg-[#111827] rounded-lg p-4 border border-blue-500/20">
-        <div className="flex items-center gap-2 mb-2">
-          <div
-            className={`w-2 h-2 rounded-full ${isComplete ? "bg-emerald-400" : "bg-blue-400"}`}
-            style={!isComplete ? { animation: "subtle-pulse 2s infinite" } : undefined}
-          />
-          <span className={`text-[11px] font-semibold uppercase tracking-wide ${isComplete ? "text-emerald-400" : "text-blue-400"}`}>
-            {verification.status}
-          </span>
-        </div>
+      <div className="border border-[var(--workspace-border)] bg-[var(--workspace-subtle)] p-4">
+        <p className="mb-2 text-sm font-medium capitalize text-slate-200">{verification.status}</p>
         <p className="text-[11px] text-slate-400">
           Asset: <span className="font-mono text-slate-300">{verification.asset_id}</span> ({verification.asset_type})
         </p>
@@ -1210,11 +1196,11 @@ function SatelliteVerificationResult({ verification, vesselPosition, onOverlay }
       </div>
 
       {isSatellite && scene && vesselPosition && (
-        <div className="bg-[#111827] rounded-lg border border-[#1a2235] overflow-hidden">
+        <div className="bg-[var(--workspace-subtle)] rounded-lg border border-[var(--workspace-border)] overflow-hidden">
           <SatThumbnail
             lat={vesselPosition.latitude}
             lng={vesselPosition.longitude}
-            borderColor={isReal ? "border-cyan-400/50" : "border-slate-500/30"}
+            borderColor={isReal ? "border-[#c7e3eb]/70" : "border-[#d0d7dd]/50"}
             imageSrc={isReal ? verification.result_media_ref ?? undefined : undefined}
             isReal={isReal}
             renderToken={verification.updated_at}
@@ -1222,11 +1208,7 @@ function SatelliteVerificationResult({ verification, vesselPosition, onOverlay }
           <div className="p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Satellite Imagery</span>
-              <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                isReal
-                  ? "text-emerald-400 bg-emerald-500/10"
-                  : "text-amber-400 bg-amber-500/10"
-              }`}>
+              <span className="text-xs text-slate-400">
                 {isReal ? "real" : "simulated"}
               </span>
             </div>
@@ -1267,7 +1249,7 @@ function SatelliteVerificationResult({ verification, vesselPosition, onOverlay }
               )}
             </div>
             {verification.result_confidence != null && (
-              <div className="mt-2 pt-2 border-t border-[#1a2235]">
+              <div className="mt-2 pt-2 border-t border-[var(--workspace-border)]">
                 <span className="text-[10px] text-slate-600">Confidence</span>
                 <span className="text-[10px] text-slate-300 font-mono ml-1">{(verification.result_confidence * 100).toFixed(0)}%</span>
               </div>
@@ -1312,7 +1294,7 @@ function SatelliteVerificationResult({ verification, vesselPosition, onOverlay }
  * - `variant="old"`: desaturated older pass
  * - `variant="fresh"`: crisp new acquisition
  */
-function SatThumbnail({ lat, lng, borderColor = "border-cyan-400/50", variant = "fresh", imageSrc, isReal = false, renderToken }: {
+function SatThumbnail({ lat, lng, borderColor = "border-[#c7e3eb]/70", variant = "fresh", imageSrc, isReal = false, renderToken }: {
   lat: number; lng: number; borderColor?: string; variant?: "old" | "fresh"; imageSrc?: string; isReal?: boolean; renderToken?: string;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1380,7 +1362,7 @@ function SatThumbnail({ lat, lng, borderColor = "border-cyan-400/50", variant = 
   return (
     <>
       <div
-        className="h-44 relative overflow-hidden cursor-zoom-in"
+        className="h-44 relative overflow-hidden bg-[#101820] cursor-zoom-in"
         onDoubleClick={handleOpen}
         title="Double-click to enlarge"
       >
@@ -1429,16 +1411,16 @@ function SatThumbnail({ lat, lng, borderColor = "border-cyan-400/50", variant = 
         {/* Old pass: cloud haze overlay */}
         {isOld && !refreshedRealSrc && (
           <>
-            <div className="absolute inset-0 bg-white/[0.08]" />
-            <div className="absolute top-0 right-0 w-2/3 h-1/2 bg-gradient-to-bl from-white/[0.12] to-transparent rounded-bl-full" />
+            <div className="absolute inset-0 bg-[#ffffff]/8" />
+            <div className="absolute top-0 right-0 w-2/3 h-1/2 bg-gradient-to-bl from-[#ffffff]/12 to-transparent rounded-bl-full" />
           </>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#111827]/80 via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#101820]/80 via-transparent to-transparent" />
         {/* Crosshair */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-12 h-px bg-cyan-400/50" />
-          <div className="absolute h-12 w-px bg-cyan-400/50" />
-          <div className="absolute w-5 h-5 border border-cyan-400/30 rounded-full" />
+          <div className="w-12 h-px bg-[#c7e3eb]/70" />
+          <div className="absolute h-12 w-px bg-[#c7e3eb]/70" />
+          <div className="absolute w-5 h-5 border border-[#c7e3eb]/60 rounded-full" />
         </div>
         {/* Corner brackets */}
         <div className={`absolute top-2 left-2 w-3 h-3 border-t border-l ${borderColor}`} />
@@ -1447,33 +1429,31 @@ function SatThumbnail({ lat, lng, borderColor = "border-cyan-400/50", variant = 
         <div className={`absolute bottom-8 right-2 w-3 h-3 border-b border-r ${borderColor}`} />
         {/* Source + freshness badge */}
         {isOld && (
-          <div className="absolute top-2 right-4 text-[8px] font-mono text-white/40 bg-black/30 px-1.5 py-0.5 rounded">
+          <div className="absolute top-2 right-4 text-[8px] font-mono text-[#f5f3ed] bg-[#101820]/80 px-1.5 py-0.5 rounded">
             ARCHIVE
           </div>
         )}
         {!isOld && (
           <div className="absolute top-2 right-4 flex items-center gap-1">
             {isReal && (
-              <span className="text-[8px] font-mono text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+              <span className="text-[8px] font-mono text-[#f5f3ed] bg-[#101820]/80 px-1.5 py-0.5 rounded">
                 SENTINEL-2
               </span>
             )}
-            <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
-              isReal ? "text-emerald-300 bg-emerald-500/20" : "text-amber-300 bg-amber-500/20"
-            }`}>
+            <span className="text-[8px] font-mono px-1.5 py-0.5 rounded text-[#f5f3ed] bg-[#101820]/80">
               {isReal ? "REAL" : "SIMULATED"}
             </span>
           </div>
         )}
         <div className="absolute bottom-2 left-0 right-0 text-center">
-          <p className="text-[10px] text-cyan-300 font-mono drop-shadow-lg">
+          <p className="text-[10px] text-[#f5f3ed] font-mono">
             {lat.toFixed(4)}N, {Math.abs(lng).toFixed(4)}{lng >= 0 ? "E" : "W"}
           </p>
         </div>
       </div>
       {isExpanded && (
         <div
-          className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8"
+          className="fixed inset-0 z-[100] bg-[#101820]/90 flex items-center justify-center p-4 sm:p-8"
           onClick={handleClose}
         >
           <div
@@ -1483,11 +1463,11 @@ function SatThumbnail({ lat, lng, borderColor = "border-cyan-400/50", variant = 
             <button
               type="button"
               onClick={handleClose}
-              className="absolute right-3 top-3 z-10 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] font-medium text-slate-200 hover:bg-black/75"
+              className="absolute right-3 top-3 z-10 rounded border border-[#ffffff]/30 bg-[#101820]/80 px-3 py-1 text-sm font-medium text-[#f5f3ed] hover:bg-[#101820]"
             >
               Close
             </button>
-            <div className="relative h-[70vh] min-h-[320px] overflow-hidden rounded-xl border border-cyan-500/20 bg-black shadow-2xl shadow-black/50">
+            <div className="relative h-[70vh] min-h-[320px] overflow-hidden border border-[#ffffff]/20 bg-[#101820]">
               <div
                 className={`absolute inset-0 transition-transform duration-200 ease-out select-none ${
                   isZoomed ? "cursor-zoom-out" : "cursor-zoom-in"
