@@ -1,131 +1,52 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { Alert } from "@/app/lib/api";
-import { riskLevel } from "@/app/lib/risk";
+import { riskTextClass } from "@/app/lib/risk";
 
-interface AlertPeeksProps {
+type AlertPeeksProps = {
   alerts: Alert[];
   onSelectAlert: (alert: Alert) => void;
   selectedAlertId: string | null;
-}
-
-type Tier = "escalate" | "verify" | "monitor" | "normal";
-
-function tierOf(action: string, score: number): Tier {
-  if (riskLevel(score) === "normal") return "normal";
-  if (action === "escalate") return "escalate";
-  if (action === "verify") return "verify";
-  if (action === "monitor") return "monitor";
-  return "normal";
-}
-
-const TIER_COLORS: Record<Tier, { dot: string; text: string; risk: string }> = {
-  escalate: { dot: "bg-red-400", text: "text-red-300", risk: "text-red-300" },
-  verify: { dot: "bg-amber-400", text: "text-amber-300", risk: "text-amber-300" },
-  monitor: { dot: "bg-cyan-400", text: "text-cyan-300", risk: "text-cyan-300" },
-  normal: { dot: "bg-emerald-400", text: "text-emerald-300", risk: "text-emerald-300" },
+  panelOpen: boolean;
 };
 
-const COLLAPSED = 3;
+function subscribeToViewport(onChange: () => void) {
+  const query = window.matchMedia("(min-width: 640px)");
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
 
-export default function AlertPeeks({ alerts, onSelectAlert, selectedAlertId }: AlertPeeksProps) {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [hovered, setHovered] = useState(false);
-
-  useEffect(() => {
-    const ids = new Set(alerts.map((a) => a.id));
-    setDismissed((prev) => new Set([...prev].filter((id) => ids.has(id))));
-  }, [alerts]);
-
-  const activeSorted = useMemo(
-    () =>
-      alerts
-        .filter((a) => a.status === "active" && !dismissed.has(a.id))
-        .sort((a, b) => b.risk_score - a.risk_score),
-    [alerts, dismissed],
-  );
-
-  if (activeSorted.length === 0) {
-    return (
-      <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
-        <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[rgba(18,22,36,0.82)] backdrop-blur-xl border border-emerald-400/20 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-          <span className="relative flex items-center justify-center w-2 h-2">
-            <span className="absolute w-2 h-2 rounded-full bg-emerald-400/40" style={{ animation: "subtle-pulse 2.4s infinite" }} />
-            <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          </span>
-          <span className="text-[12.5px] font-semibold text-slate-200">No active alerts</span>
-          <span className="font-mono text-[10px] text-emerald-300 tracking-[0.14em] uppercase">Nominal</span>
-        </div>
-      </div>
-    );
-  }
-
-  const visible = hovered ? activeSorted : activeSorted.slice(0, COLLAPSED);
-  const hiddenCount = activeSorted.length - visible.length;
-
-  // Expanded window = ~5 rows tall, scroll reveals the rest
-  const maxH = hovered ? 5 * 58 + 4 * 6 : "auto";
+export default function AlertPeeks({ alerts, onSelectAlert, selectedAlertId, panelOpen }: AlertPeeksProps) {
+  const desktop = useSyncExternalStore(subscribeToViewport, () => window.matchMedia("(min-width: 640px)").matches, () => true);
+  const [userExpanded, setExpanded] = useState<boolean | null>(null);
+  const expanded = userExpanded ?? desktop;
+  const active = alerts.filter((alert) => alert.status === "active").sort((a, b) => b.risk_score - a.risk_score);
 
   return (
-    <div
-      className={`absolute bottom-4 left-4 z-20 flex flex-col gap-1.5 pr-1 ${hovered ? "overflow-y-auto scroll-thin" : "overflow-visible"}`}
-      style={{ maxHeight: typeof maxH === "number" ? `${maxH}px` : maxH }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {hiddenCount > 0 && (
-        <div className="self-start px-2.5 py-1 rounded-full bg-[rgba(18,22,36,0.75)] backdrop-blur-xl border border-white/[0.1] font-mono text-[10px] text-slate-400">
-          +{hiddenCount} more · hover to expand
+    <section aria-label="Alert queue" className={`absolute bottom-[var(--map-alert-bottom)] left-3 z-20 overflow-hidden rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-surface)] shadow-lg ${expanded ? "w-[300px] max-w-[calc(100vw-24px)]" : "w-[200px] max-w-[calc(100vw-120px)] sm:w-[300px] sm:max-w-none"} ${panelOpen ? "hidden lg:block" : ""}`}>
+      <button type="button" aria-expanded={expanded} aria-controls="alert-queue" onClick={() => setExpanded(!expanded)} className="flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left text-[13px] font-medium text-slate-200 hover:bg-white/[0.03]">
+        <span>{active.length} {active.length === 1 ? "alert" : "alerts"}<span className="hidden text-slate-400 sm:inline"> to review</span></span>
+        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={expanded ? "rotate-180" : ""}><path d="m6 9 6 6 6-6" /></svg>
+      </button>
+      {expanded && (
+        <div id="alert-queue" className="max-h-[min(240px,30dvh)] overflow-y-auto border-t border-white/[0.08]">
+          {active.length === 0 && <p className="px-3.5 py-4 text-xs text-slate-400">No alerts to review</p>}
+          {active.map((alert) => (
+            <button key={alert.id} type="button" aria-label={`Review ${alert.vessel_name || "unknown vessel"}`} aria-pressed={selectedAlertId === alert.id} onClick={() => onSelectAlert(alert)} className={`flex min-h-16 w-full items-center gap-3 border-b border-white/[0.06] px-3.5 py-3 text-left last:border-0 hover:bg-white/[0.04] ${selectedAlertId === alert.id ? "bg-white/[0.06]" : ""}`}>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium text-slate-200">{alert.vessel_name || "Unknown vessel"}</div>
+                <div className="mt-1 flex items-center gap-2 text-[11px]">
+                  <span className={`capitalize ${riskTextClass(alert.risk_score)}`}>{alert.recommended_action}</span>
+                  <span className="truncate text-slate-400">{alert.anomaly_signals.length} {alert.anomaly_signals.length === 1 ? "signal" : "signals"}</span>
+                </div>
+              </div>
+              <span className={`font-mono text-sm ${riskTextClass(alert.risk_score)}`}>{Math.round(alert.risk_score)}</span>
+              <span aria-hidden="true" className="text-slate-600">›</span>
+            </button>
+          ))}
         </div>
       )}
-      {visible.map((alert) => {
-        const tier = tierOf(alert.recommended_action, alert.risk_score);
-        const c = TIER_COLORS[tier];
-        const isSelected = selectedAlertId === alert.id;
-
-        return (
-          <div
-            key={alert.id}
-            className={`group flex items-center gap-3 px-3.5 py-2.5 rounded-xl backdrop-blur-xl border min-w-[320px] max-w-[360px] cursor-pointer transition-colors shrink-0 ${
-              isSelected
-                ? "bg-[rgba(24,28,44,0.92)] border-white/[0.22]"
-                : "bg-[rgba(18,22,36,0.82)] border-white/[0.14] hover:bg-[rgba(22,26,40,0.9)] hover:border-white/[0.2]"
-            }`}
-            onClick={() => onSelectAlert(alert)}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.dot}`} />
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-semibold text-slate-100 truncate leading-tight">
-                {alert.vessel_name || "Unknown Vessel"}
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className={`font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] ${c.text}`}>
-                  {alert.recommended_action}
-                </span>
-                <span className="font-mono text-[10px] text-slate-500 tabular-nums">
-                  MMSI {alert.vessel_mmsi || "—"}
-                </span>
-              </div>
-            </div>
-            <div className={`font-mono text-[15px] font-bold tabular-nums leading-none tracking-[-0.02em] ${c.risk}`}>
-              {Math.round(alert.risk_score)}
-            </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setDismissed((prev) => new Set([...prev, alert.id]));
-              }}
-              className="shrink-0 w-5 h-5 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition-colors opacity-0 group-hover:opacity-100"
-              title="Dismiss"
-            >
-              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        );
-      })}
-    </div>
+    </section>
   );
 }

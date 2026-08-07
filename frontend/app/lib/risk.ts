@@ -6,9 +6,9 @@ export const RISK_THRESHOLDS = {
 } as const;
 
 export const RISK_COLORS = {
-  hex: { escalate: "#ef4444", verify: "#f97316", monitor: "#f59e0b", normal: "#22c55e" },
-  text: { escalate: "text-red-400", verify: "text-orange-400", monitor: "text-yellow-400", normal: "text-green-400" },
-  bg: { escalate: "bg-red-500/10", verify: "bg-orange-500/10", monitor: "bg-yellow-500/10", normal: "bg-green-500/10" },
+  hex: { escalate: "#ef4444", verify: "#f97316", monitor: "#f59e0b", normal: "#8da5b7" },
+  text: { escalate: "text-red-400", verify: "text-orange-400", monitor: "text-yellow-400", normal: "text-slate-300" },
+  bg: { escalate: "bg-red-500/10", verify: "bg-orange-500/10", monitor: "bg-yellow-500/10", normal: "bg-slate-500/10" },
   glow: { escalate: "shadow-red-500/20", verify: "shadow-orange-500/20", monitor: "", normal: "" },
 } as const;
 

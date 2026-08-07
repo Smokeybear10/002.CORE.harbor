@@ -2,16 +2,21 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { Region } from "@/app/lib/api";
-import { api } from "@/app/lib/api";
+import type { DataMode } from "@/app/lib/api";
+import { useDataSource } from "@/app/lib/data-source";
+import { DEMO_DURATION_MS, DEMO_PLAYBACK_RATE } from "@/app/lib/demo-api";
 import Logomark from "@/app/components/Logomark";
-import ReturnHome from "@/app/components/ReturnHome";
+import Link from "next/link";
 
-interface FloatingChromeProps {
+type FloatingChromeProps = {
   regions: Record<string, Region>;
   activeRegion: string | null;
   onSelectRegion: (key: string | null) => void;
-  alertCount: number;
+  vesselCount: number;
+  onModeChange: (mode: DataMode) => void;
   isLive: boolean;
+  loading: boolean;
+  statusKnown: boolean;
   connectionOk: boolean;
   onToggleAnalytics: () => void;
   analyticsOpen: boolean;
@@ -38,15 +43,19 @@ export default function FloatingChrome({
   regions,
   activeRegion,
   onSelectRegion,
-  alertCount,
+  vesselCount,
+  onModeChange,
   isLive,
+  loading,
+  statusKnown,
   connectionOk,
   onToggleAnalytics,
   analyticsOpen,
   onOpenCommandPalette,
 }: FloatingChromeProps) {
+  const { api, mode, isDemo } = useDataSource();
   const [regionOpen, setRegionOpen] = useState(false);
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [counts, setCounts] = useState<Record<string, number | null>>({});
   const [countsLoading, setCountsLoading] = useState(false);
   const regionMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -57,8 +66,15 @@ export default function FloatingChrome({
         setRegionOpen(false);
       }
     };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRegionOpen(false);
+    };
     window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handler);
+      window.removeEventListener("keydown", handleEscape);
+    };
   }, [regionOpen]);
 
   // Lazy-fetch vessel counts per region when dropdown opens. Refresh every 30s while open.
@@ -77,12 +93,12 @@ export default function FloatingChrome({
               const r = await api.getVessels(key, 1, 0);
               return [key, r.total] as const;
             } catch {
-              return [key, 0] as const;
+              return [key, null] as const;
             }
           }),
         );
         if (cancelled) return;
-        const next: Record<string, number> = {};
+        const next: Record<string, number | null> = {};
         for (const [k, n] of results) next[k] = n;
         setCounts(next);
       } finally {
@@ -91,55 +107,62 @@ export default function FloatingChrome({
     };
 
     fetchCounts();
-    const id = setInterval(fetchCounts, 30_000);
+    const id = isDemo ? undefined : setInterval(fetchCounts, 30_000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [regionOpen, regions]);
+  }, [api, isDemo, regionOpen, regions]);
 
-  const totalCount = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  const countValues = Object.values(counts);
+  const totalCount = countValues.length > 0 && countValues.every((n) => n !== null)
+    ? countValues.reduce<number>((sum, n) => sum + (n ?? 0), 0)
+    : null;
 
   const activeLabel = activeRegion
     ? shortName(activeRegion, regions[activeRegion]?.name ?? activeRegion)
     : "Global";
 
-  return (
-    <div className="absolute top-3 left-3 right-3 z-30 flex items-center gap-2 pointer-events-none">
-      {/* Logo pill — returns to landing with exit animation */}
-      <ReturnHome className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-[rgba(18,22,36,0.82)] backdrop-blur-xl border border-white/[0.14] hover:bg-[rgba(18,22,36,0.9)] hover:border-white/[0.22] transition-colors text-slate-200">
-        <Logomark size={18} />
-        <span className="text-[13px] font-semibold tracking-tight text-slate-100">HarborOS</span>
-      </ReturnHome>
+  const controlClass = "min-h-11 min-w-11 disabled:cursor-not-allowed disabled:opacity-40 items-center justify-center gap-2 rounded-md px-3 text-[13px] text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white";
+  const statusLabel = loading ? (isDemo ? "Loading demo" : "Connecting to live data") : isDemo ? "Live demo" : !connectionOk ? "Live data offline" : !statusKnown ? "Feed status unavailable" : isLive ? "Live AIS connected" : "AIS feed disconnected";
+  const statusColor = isDemo ? "bg-sky-400" : !connectionOk ? "bg-amber-400" : isLive ? "bg-emerald-400" : "bg-slate-400";
 
-      {/* Sector pill */}
-      <div ref={regionMenuRef} className="pointer-events-auto relative">
+  return (
+    <header aria-label="Map controls" className="absolute inset-x-0 top-0 z-30 border-b border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 py-2 sm:px-4">
+      <div className="flex flex-wrap items-center gap-1 sm:flex-nowrap sm:gap-2">
+      <Link href={`/?mode=${mode}`} aria-label="HarborOS map" className="order-1 inline-flex min-h-11 shrink-0 items-center gap-2.5 pr-2 text-slate-100 sm:mr-1 sm:border-r sm:border-[var(--workspace-border)] sm:pr-5">
+        <Logomark size={22} />
+        <span className="text-[14px] font-semibold tracking-tight">HarborOS</span>
+      </Link>
+
+      <div className="order-7 w-full sm:hidden" />
+
+      <div ref={regionMenuRef} className="relative order-8 sm:order-2">
         <button
+          type="button"
+          disabled={Object.keys(regions).length === 0}
+          aria-expanded={regionOpen}
+          aria-controls="region-options"
+          aria-label={`Select region: ${activeLabel}`}
           onClick={() => setRegionOpen((v) => !v)}
           data-tour="regions"
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-[rgba(18,22,36,0.82)] backdrop-blur-xl border transition-colors text-[13px] ${
-            regionOpen ? "border-violet-400/40" : "border-white/[0.14] hover:border-white/[0.22]"
-          }`}
+          className={`inline-flex ${controlClass} ${regionOpen ? "bg-white/[0.06] text-white" : ""}`}
         >
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-          <span className="font-semibold text-slate-100">{activeLabel}</span>
-          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className={`text-slate-500 transition-transform ${regionOpen ? "rotate-180" : ""}`}>
+          <span className="max-w-[110px] truncate font-medium sm:max-w-[150px]">{activeLabel}</span>
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={`shrink-0 text-slate-400 transition-transform ${regionOpen ? "rotate-180" : ""}`}>
             <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
         {regionOpen && (
-          <div className="absolute top-[calc(100%+6px)] left-0 min-w-[260px] p-1.5 rounded-xl bg-[rgba(18,22,36,0.95)] backdrop-blur-2xl border border-white/[0.14] shadow-[0_20px_48px_rgba(0,0,0,0.5)]">
+          <div id="region-options" className="absolute top-[calc(100%+8px)] left-0 max-h-[60dvh] w-[260px] max-w-[calc(100vw-40px)] overflow-y-auto rounded-lg border border-white/[0.14] bg-[#121a28] p-1.5 shadow-xl">
             <RegionItem
               name="Global"
-              count={totalCount > 0 ? totalCount : null}
-              loading={countsLoading && totalCount === 0}
+              count={totalCount}
+              loading={countsLoading && totalCount === null}
               active={activeRegion === null}
               onClick={() => { onSelectRegion(null); setRegionOpen(false); }}
             />
-            <div className="h-px bg-white/[0.06] my-1" />
+            <div className="my-1 h-px bg-white/[0.06]" />
             {Object.keys(regions).map((key) => (
               <RegionItem
                 key={key}
@@ -150,72 +173,40 @@ export default function FloatingChrome({
                 onClick={() => { onSelectRegion(key); setRegionOpen(false); }}
               />
             ))}
+            {Object.keys(regions).length === 0 && (
+              <p className="px-3 py-2 text-xs leading-relaxed text-slate-400">Regions will appear when vessel data is available.</p>
+            )}
           </div>
         )}
       </div>
 
-      {/* Command palette hint pill */}
-      <button
-        onClick={onOpenCommandPalette}
-        className="pointer-events-auto flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[rgba(18,22,36,0.82)] backdrop-blur-xl border border-white/[0.14] hover:bg-[rgba(18,22,36,0.9)] hover:border-white/[0.22] transition-colors text-[12.5px] text-slate-400"
-      >
-        <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
+      <button type="button" aria-label="Search vessels and commands" disabled={loading || (!connectionOk && vesselCount === 0)} onClick={onOpenCommandPalette} className={`inline-flex ${controlClass} order-2 ml-auto sm:order-3 sm:ml-0 sm:justify-start lg:w-[210px] lg:border lg:border-[var(--workspace-border)] lg:bg-white/[0.025]`}>
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <circle cx="11" cy="11" r="7" /><path d="m21 21-5-5" />
         </svg>
-        <span>Search, switch, summon</span>
-        <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-slate-400">⌘K</kbd>
+        <span className="hidden lg:inline">Search vessels</span>
+        <kbd className="ml-auto hidden rounded border border-white/[0.1] px-1.5 py-0.5 font-mono text-[10px] text-slate-400 xl:inline">⌘K</kbd>
       </button>
-
-      <div className="flex-1" />
-
-      {/* Alert count pill */}
-      <button
-        onClick={onOpenCommandPalette}
-        className={`pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-xl border transition-colors text-[12px] font-mono font-semibold tabular-nums ${
-          alertCount > 0
-            ? "bg-red-500/[0.08] border-red-400/25 text-red-300 hover:bg-red-500/[0.12]"
-            : "bg-[rgba(18,22,36,0.82)] border-white/[0.14] text-slate-400"
-        }`}
-      >
-        {alertCount} active
-      </button>
-
-      {/* Analytics button */}
-      <button
-        data-tour="analytics-btn"
-        onClick={onToggleAnalytics}
-        className={`pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-xl border transition-colors text-[12.5px] ${
-          analyticsOpen
-            ? "bg-violet-500/[0.12] border-violet-400/35 text-violet-200"
-            : "bg-[rgba(18,22,36,0.82)] border-white/[0.14] text-slate-300 hover:border-white/[0.22]"
-        }`}
-      >
-        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 3v18h18" />
-          <path d="M7 14l4-4 4 4 5-5" />
+      <div className="order-4 hidden flex-1 sm:block" />
+      <div role="status" className="order-9 ml-auto flex min-h-11 items-center gap-2 px-2 text-xs text-slate-400 sm:order-5 sm:ml-0">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} />
+        <span className="hidden lg:inline">{statusLabel}</span>
+        <span className="lg:hidden">{loading ? "Connecting…" : isDemo ? "Live demo" : !connectionOk ? "AIS offline" : !statusKnown ? "Status unknown" : isLive ? "Live AIS" : "AIS disconnected"}</span>
+        {!loading && connectionOk && <span className="hidden border-l border-[var(--workspace-border)] pl-2 xl:inline">{vesselCount} vessels</span>}
+      </div>
+      <button type="button" data-tour="analytics-btn" aria-label="Analytics" disabled={(loading || !connectionOk) && !analyticsOpen} aria-pressed={analyticsOpen} onClick={onToggleAnalytics} className={`inline-flex ${controlClass} order-3 sm:order-6 ${analyticsOpen ? "bg-white/[0.08] text-white" : ""}`}>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 3v18h18" /><path d="M7 14l4-4 4 4 5-5" />
         </svg>
-        Analytics
+        <span className="hidden lg:inline">Analytics</span>
       </button>
-
-      {/* Live status */}
-      {!connectionOk ? (
-        <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/[0.08] backdrop-blur-xl border border-red-400/25">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-400" style={{ animation: "subtle-pulse 1.4s infinite" }} />
-          <span className="font-mono text-[10px] font-semibold text-red-300 tracking-[0.14em]">OFFLINE</span>
-        </div>
-      ) : isLive ? (
-        <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/[0.06] backdrop-blur-xl border border-emerald-400/20">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ animation: "subtle-pulse 2.4s infinite" }} />
-          <span className="font-mono text-[10px] font-semibold text-emerald-300 tracking-[0.14em]">LIVE</span>
-        </div>
-      ) : (
-        <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/[0.06] backdrop-blur-xl border border-amber-400/20">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-          <span className="font-mono text-[10px] font-semibold text-amber-300 tracking-[0.14em]">SCENARIO</span>
-        </div>
-      )}
-    </div>
+      <Link href="/docs" className={`hidden lg:inline-flex ${controlClass} sm:order-7`}>Docs</Link>
+      {isDemo && <button type="button" aria-label="Try live" title="Connect to live AIS" onClick={() => onModeChange("live")} className={`inline-flex ${controlClass} order-4 shrink-0 sm:order-8`}>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M7 7h10M9 3v4m6-4v4m-8 0v5a5 5 0 0 0 10 0V7m-5 10v4" /></svg>
+        <span className="hidden sm:inline">Try live</span>
+      </button>}
+      </div>
+    </header>
   );
 }
 
@@ -235,7 +226,8 @@ function RegionItem({
   return (
     <button
       onClick={onClick}
-      className={`group w-full flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg text-[12.5px] transition-colors ${
+      aria-pressed={active}
+      className={`group min-h-11 w-full flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg text-[12.5px] transition-colors ${
         active ? "bg-white/[0.06] text-slate-100" : "text-slate-300 hover:bg-white/[0.03]"
       }`}
     >
@@ -244,18 +236,44 @@ function RegionItem({
         <span
           className={`font-mono text-[10.5px] tabular-nums px-1.5 py-0.5 rounded ${
             active
-              ? "text-violet-200 bg-violet-500/[0.12] border border-violet-400/25"
+              ? "text-sky-200 bg-sky-500/[0.10] border border-sky-400/20"
               : "text-slate-500 group-hover:text-slate-300"
           }`}
         >
           {loading ? "…" : count != null ? count.toLocaleString() : "—"}
         </span>
         {active && (
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-violet-300">
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-sky-300">
             <path d="M20 6L9 17l-5-5" />
           </svg>
         )}
       </span>
     </button>
+  );
+}
+
+export function DemoPlayback({ elapsed, paused, loading, onToggle }: {
+  elapsed: number;
+  paused: boolean;
+  loading: boolean;
+  onToggle: () => void;
+}) {
+  const finished = elapsed >= DEMO_DURATION_MS;
+  const time = `${Math.floor(elapsed / 60_000).toString().padStart(2, "0")}:${Math.floor(elapsed / 1000 % 60).toString().padStart(2, "0")}`;
+  const action = finished ? "Replay" : paused ? "Play" : "Pause";
+  return (
+    <section aria-label="Demo playback" className="absolute bottom-[var(--playback-bottom)] left-3 right-3 z-30 overflow-hidden rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-surface)] shadow-lg sm:left-1/2 sm:right-auto sm:w-[400px] sm:-translate-x-1/2">
+      <div className="flex min-h-[68px] items-center gap-3 px-3 sm:px-4">
+        <button type="button" onClick={onToggle} aria-label={`${action} demo playback`} title={`${action} demo playback`} disabled={loading} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white/[0.08] text-slate-100 transition-colors hover:bg-white/[0.14] disabled:opacity-40">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">{paused || finished ? <path d="M4 2.5 13 8l-9 5.5z" /> : <path d="M4 3h3v10H4zm5 0h3v10H9z" />}</svg>
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium text-slate-200">{finished ? "Scenario complete" : paused ? "Demo paused" : "Harbor simulation"}</p>
+          <p className="mt-0.5 truncate text-xs text-slate-400">Simulated traffic · {DEMO_PLAYBACK_RATE}× playback</p>
+        </div>
+        <span aria-label={`Scenario playback ${time} of ${DEMO_DURATION_MS / 60_000} minutes`} className="shrink-0 font-mono text-xs tabular-nums text-slate-300">{time}<span className="hidden text-slate-400 sm:inline"> / {DEMO_DURATION_MS / 60_000}:00</span></span>
+      </div>
+      <div aria-hidden="true" className="h-0.5 bg-white/[0.06]"><div className="h-full bg-sky-400/80" style={{ width: `${elapsed / DEMO_DURATION_MS * 100}%` }} /></div>
+    </section>
   );
 }

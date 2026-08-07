@@ -184,8 +184,9 @@ def _serialize_verification_request(vr: VerificationRequestORM) -> VerificationR
 
 @router.get("/regions")
 def list_regions():
-    """List all available monitoring regions with metadata."""
-    from app.data_sources.aisstream_adapter import REGIONS
+    """List the regions this deployment monitors."""
+    from app.services.ingestion_service import get_ingestion_service
+    regions = get_ingestion_service().client.active_regions
     return {
         key: {
             "name": r["name"],
@@ -194,7 +195,7 @@ def list_regions():
             "description": r["description"],
             "bbox": r["bbox"],
         }
-        for key, r in REGIONS.items()
+        for key, r in regions.items()
     }
 
 

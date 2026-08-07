@@ -241,26 +241,29 @@ class IngestionService:
                     break
 
                 cycle += 1
-                db = SessionLocal()
-                try:
-                    alerts = generate_alerts_for_all_vessels(db)
-                    self._last_alert_run = datetime.now(timezone.utc)
-                    if alerts:
-                        logger.info(f"Alert scan: {len(alerts)} alerts generated/updated")
-
-                    # Archive old data every 10th cycle (~5 minutes)
-                    if cycle % 10 == 0:
-                        from app.services.archive_service import archive_old_positions
-                        result = archive_old_positions(db=db)
-                        if result["archived"] > 0:
-                            logger.info(f"Archived {result['archived']} positions to Parquet")
-                except Exception as e:
-                    logger.error(f"Alert generation error: {e}")
-                finally:
-                    db.close()
+                # Weather lookups and scoring must not block the AIS socket or API.
+                await asyncio.to_thread(self._run_alert_scan, cycle % 10 == 0)
 
         except asyncio.CancelledError:
             pass
+
+    def _run_alert_scan(self, archive: bool) -> None:
+        db = SessionLocal()
+        try:
+            alerts = generate_alerts_for_all_vessels(db)
+            self._last_alert_run = datetime.now(timezone.utc)
+            if alerts:
+                logger.info(f"Alert scan: {len(alerts)} alerts generated/updated")
+
+            if archive:
+                from app.services.archive_service import archive_old_positions
+                result = archive_old_positions(db=db)
+                if result["archived"] > 0:
+                    logger.info(f"Archived {result['archived']} positions to Parquet")
+        except Exception as e:
+            logger.error(f"Alert generation error: {e}")
+        finally:
+            db.close()
 
 
 
