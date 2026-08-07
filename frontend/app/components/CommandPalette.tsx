@@ -45,15 +45,16 @@ export default function CommandPalette({
     // Actions
     const actions: Array<Extract<Result, { kind: "action" }>> = [
       { kind: "action", label: "Toggle analytics", run: onToggleAnalytics, shortcut: "A" },
-      { kind: "action", label: "Show global view", run: () => onSelectRegion(null) },
     ];
+    if (Object.keys(regions).length > 1) {
+      actions.push({ kind: "action", label: "Show all monitored regions", run: () => onSelectRegion(null) });
+    }
     for (const a of actions) {
       if (!q || a.label.toLowerCase().includes(q)) out.push(a);
     }
 
     // Regions
     const regionEntries: Array<Extract<Result, { kind: "region" }>> = [
-      { kind: "region", key: null, label: "Global" },
       ...Object.keys(regions).map((key) => ({ kind: "region" as const, key, label: regions[key].name })),
     ];
     for (const r of regionEntries) {
@@ -242,7 +243,7 @@ function Kind({ icon }: { icon: "region" | "alert" | "vessel" | "action" }) {
     action: (<><circle cx="12" cy="12" r="9" /><polyline points="10 8 14 12 10 16" /></>),
   };
   return (
-    <div className="w-7 h-7 flex items-center justify-center rounded-md bg-white/[0.04] border border-white/[0.06] shrink-0">
+    <div className="w-7 h-7 flex items-center justify-center shrink-0">
       <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
         {paths[icon]}
       </svg>
