@@ -30,7 +30,7 @@ export default function AboutPage() {
         eyebrow="Team · 2026"
         title="Built at the hackathon"
         gradient="by four people."
-        body="HarborOS started as a weekend build. Here's who shipped what."
+        body="This project started as a weekend build. The contributors and their work are listed below."
       />
 
       <section className="max-w-[1100px] mx-auto px-8 pb-24">

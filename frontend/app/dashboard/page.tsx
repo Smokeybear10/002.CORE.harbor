@@ -545,7 +545,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
 
   return (
     <main id="main" className="harbor-workspace h-dvh relative overflow-hidden" data-demo={isDemo} data-tour="map">
-      <h1 className="sr-only">HarborOS maritime map</h1>
+      <h1 className="sr-only">Vessel tracking map</h1>
       {/* Full-bleed map */}
       <MapView
         vessels={vessels}
@@ -660,7 +660,7 @@ function LoadingMap() {
   return (
     <main id="main" className="flex h-dvh items-center justify-center bg-[#080b14]" aria-busy="true">
       <div role="status" className="text-center">
-        <h1 className="text-sm font-semibold text-slate-100">HarborOS</h1>
+        <h1 className="text-sm font-semibold text-slate-100">Vessel tracking</h1>
         <p className="mt-2 text-xs text-slate-400">Loading map…</p>
       </div>
     </main>

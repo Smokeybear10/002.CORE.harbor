@@ -412,7 +412,7 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
 
         {/* Footer */}
         <div className="mt-12 pt-6 border-t border-white/[0.06] text-center text-[10.5px] font-mono tracking-[0.18em] uppercase text-slate-600">
-          H4BOR · {isDemo ? "Sample data" : "AIS vessel report"}
+          {isDemo ? "Sample vessel report" : "AIS vessel report"}
         </div>
       </div>
 

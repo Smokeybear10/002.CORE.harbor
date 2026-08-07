@@ -64,23 +64,8 @@ body > *:not(.ambient-glow) {
   z-index: 1;
 }
 
-/* Sentinel gradient text */
 .gradient-text {
-  background: linear-gradient(120deg, #a78bfa 0%, #22d3ee 40%, #f472b6 70%, #a78bfa 100%);
-  background-size: 220% 100%;
-  background-position: 0% 0%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: gradient-slide 9s ease-in-out infinite;
-}
-@keyframes gradient-slide {
-  0%, 100% { background-position: 0% 0%; }
-  50% { background-position: 100% 0%; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .gradient-text { animation: none; }
+  color: #a7bfce;
 }
 
 /* Drifting ambient dots — used for map previews on the landing page */
@@ -182,9 +167,9 @@ body > *:not(.ambient-glow) {
 .harbor-workspace {
   overflow: clip;
   color-scheme: dark;
-  --workspace-surface: #151a20;
-  --workspace-border: #30363d;
-  --map-panel-top: 120px;
+  --workspace-surface: #172027;
+  --workspace-border: #35434c;
+  --map-panel-top: 132px;
   --map-panel-bottom: 16px;
   --map-tools-bottom: 36px;
   --map-alert-bottom: 36px;
@@ -198,13 +183,13 @@ body > *:not(.ambient-glow) {
   --map-alert-bottom: calc(var(--playback-bottom) + 82px);
 }
 @media (min-width: 640px) {
-  .harbor-workspace { --map-panel-top: 76px; }
+  .harbor-workspace { --map-panel-top: 84px; }
   .harbor-workspace[data-demo="true"] { --map-tools-bottom: 36px; }
 }
 .workspace-panel {
   background: var(--workspace-surface);
   border: 1px solid var(--workspace-border);
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
 }
 .workspace-panel :is(button, a) { min-height: 44px; }
