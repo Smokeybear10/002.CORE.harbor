@@ -127,24 +127,18 @@ function DocsHero() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.05fr] gap-10 items-start">
         {/* Left: tight headline + CTAs */}
         <div className="pt-2">
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-white/[0.08] bg-white/[0.02] text-[11.5px] text-slate-400 font-mono mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-            API · v2.4 · REST
-          </div>
           <h1 className="text-[38px] leading-[1.04] tracking-[-0.03em] font-semibold mb-5">
-            One surface.
-            <br />
-            Everything the console sees.
+            API documentation
           </h1>
           <p className="text-[14.5px] leading-[1.6] text-slate-400 max-w-[480px] mb-7">
-            The HarborOS REST API exposes every vessel, alert, geofence, and analytics rollup that powers the console. Same surface the UI consumes. Runnable in under a minute.
+            The REST API returns the vessel positions, alerts, geofences, and metrics used by the map.
           </p>
           <div className="flex flex-wrap gap-2.5 items-center">
             <Link href="#endpoints" className="btn-primary text-[13px] px-4 py-2 rounded-md inline-flex items-center gap-2">
               Browse endpoints <span aria-hidden>→</span>
             </Link>
             <Link href="#quickstart" className="btn-secondary text-[13px] px-4 py-2 rounded-md inline-flex items-center gap-2 backdrop-blur">
-              60-second quickstart
+              Local setup
             </Link>
           </div>
         </div>
@@ -156,15 +150,15 @@ function DocsHero() {
             <span className="w-2 h-2 rounded-full bg-white/15" />
             <span className="w-2 h-2 rounded-full bg-white/15" />
             <span className="font-mono text-[10px] text-slate-500 tracking-[0.12em] uppercase ml-1.5">
-              harboros · shell
+              Example request
             </span>
             <span className="ml-auto flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ animation: "subtle-pulse 2.4s infinite" }} />
-              <span className="font-mono text-[9.5px] text-emerald-300 tracking-[0.14em] uppercase">Live</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="font-mono text-[9.5px] text-emerald-300 tracking-[0.14em] uppercase">Sample</span>
             </span>
           </div>
           <pre className="px-4 py-4 text-[12.5px] font-mono leading-[1.75] text-slate-300 overflow-x-auto">
-<code><span className="text-slate-600">$</span> <span className="text-violet-300">curl</span> https://harboros.app/api/alerts?region=la_harbor{"\n"}
+<code><span className="text-slate-600">$</span> <span className="text-violet-300">curl</span> http://localhost:3003/api/alerts?region=la_harbor{"\n"}
 <span className="text-slate-600">{"{"}</span>{"\n"}
 {"  "}<span className="text-cyan-300">"items"</span>: [{"\n"}
 {"    "}{"{"}{"\n"}

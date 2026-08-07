@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "H4BOR | About",
-  description: "The team behind HarborOS — maritime intelligence, detection engines, and the operations console.",
+  title: "About this project",
+  description: "The contributors behind this vessel tracking project.",
 };
 
 export default function AboutLayout({ children }: { children: React.ReactNode }) {
