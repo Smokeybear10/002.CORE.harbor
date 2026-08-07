@@ -5,11 +5,8 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.models.domain import AnomalySignalSchema, AnomalyType, ActionRecommendation
-from app.services.risk_scoring import (
-    compute_risk_assessment,
-    score_anomaly_signals,
-    determine_action,
-)
+from app.services.risk_scoring import compute_risk_assessment
+from app.services.fuzzy_risk import marsec_action
 
 
 class FakeVessel:
@@ -18,6 +15,7 @@ class FakeVessel:
             "id": "v1", "name": "Test", "mmsi": "123456789",
             "imo": "1234567", "callsign": "TEST", "destination": "PORT",
             "flag_state": "US", "inspection_deficiencies": 0,
+            "vessel_type": "cargo",
         }
         defaults.update(kwargs)
         for k, v in defaults.items():
@@ -36,7 +34,7 @@ def test_high_risk_vessel():
         AnomalySignalSchema(anomaly_type=AnomalyType.AIS_GAP, severity=0.6, description="test"),
     ]
     assessment = compute_risk_assessment(vessel, signals)
-    assert assessment.risk_score >= 70, f"Expected escalate, got {assessment.risk_score}"
+    assert assessment.risk_score >= 80, f"Expected escalate, got {assessment.risk_score}"
     assert assessment.recommended_action == ActionRecommendation.ESCALATE
 
 
@@ -59,10 +57,12 @@ def test_medium_risk_vessel():
 
 
 def test_action_thresholds():
-    assert determine_action(10) == ActionRecommendation.IGNORE
-    assert determine_action(30) == ActionRecommendation.MONITOR
-    assert determine_action(50) == ActionRecommendation.VERIFY
-    assert determine_action(80) == ActionRecommendation.ESCALATE
+    assert marsec_action(34.9) == ActionRecommendation.IGNORE
+    assert marsec_action(35) == ActionRecommendation.MONITOR
+    assert marsec_action(59.9) == ActionRecommendation.MONITOR
+    assert marsec_action(60) == ActionRecommendation.VERIFY
+    assert marsec_action(79.9) == ActionRecommendation.VERIFY
+    assert marsec_action(80) == ActionRecommendation.ESCALATE
 
 
 def test_explanation_contains_signals():
@@ -80,7 +80,9 @@ def test_metadata_penalty():
     incomplete = FakeVessel(imo=None, callsign=None, destination=None)
 
     signals = [
-        AnomalySignalSchema(anomaly_type=AnomalyType.LOITERING, severity=0.5, description="test"),
+        AnomalySignalSchema(anomaly_type=AnomalyType.LOITERING, severity=0.6, description="test"),
+        AnomalySignalSchema(anomaly_type=AnomalyType.SPEED_ANOMALY, severity=0.7, description="test"),
+        AnomalySignalSchema(anomaly_type=AnomalyType.AIS_GAP, severity=0.6, description="test"),
     ]
 
     score_complete = compute_risk_assessment(complete, signals).risk_score
