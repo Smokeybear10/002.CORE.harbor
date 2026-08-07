@@ -10,12 +10,15 @@ and periodically re-runs anomaly detection.
 from __future__ import annotations
 import asyncio
 import logging
+from time import sleep
 import uuid
 from datetime import datetime, timezone, timedelta
 
+from sqlalchemy import func
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+from app.database import SessionLocal, is_durable_storage
 from app.models.domain import VesselORM, PositionReportORM, AlertORM, VerificationRequestORM, RiskHistoryORM
 from app.data_sources.aisstream_adapter import AISStreamClient
 from app.services.alert_service import generate_alerts_for_all_vessels
@@ -142,21 +145,60 @@ class IngestionService:
         if not batch:
             return
 
-        db = SessionLocal()
-        try:
-            for msg in batch:
-                if msg["type"] == "position":
-                    self._upsert_position(db, msg)
-                elif msg["type"] == "static":
-                    self._upsert_vessel_static(db, msg)
-            db.commit()
-        except Exception as e:
-            logger.error(f"Batch flush error: {e}")
-            db.rollback()
-        finally:
-            db.close()
+        counters_before = (self._vessels_created, self._vessels_updated, self._positions_ingested)
+        seen_before = self._vessels_seen.copy()
+        static_before = self._unmatched_static.copy()
+        for attempt in range(2):
+            db = SessionLocal()
+            try:
+                self._write_batch(db, batch)
+                db.commit()
+                return
+            except Exception as error:
+                db.rollback()
+                self._vessels_created, self._vessels_updated, self._positions_ingested = counters_before
+                self._vessels_seen = seen_before.copy()
+                self._unmatched_static = static_before.copy()
+                if attempt or not isinstance(error, (OperationalError, InterfaceError)):
+                    logger.error("Batch flush error: %s", error)
+                    return
+                logger.warning("Temporary database failure; retrying AIS batch")
+            finally:
+                db.close()
+            sleep(0.5)
 
-    def _upsert_position(self, db: Session, msg: dict):
+    def _write_batch(self, db: Session, batch: list[dict]) -> None:
+        mmsis = {msg["mmsi"] for msg in batch}
+        vessels = {
+            vessel.mmsi: vessel for vessel in db.query(VesselORM).filter(VesselORM.mmsi.in_(mmsis)).all()
+        }
+        position_ids = {
+            vessels[msg["mmsi"]].id for msg in batch
+            if msg["type"] == "position" and msg["mmsi"] in vessels
+        }
+        latest_positions = {}
+        if position_ids:
+            latest_times = db.query(
+                PositionReportORM.vessel_id,
+                func.max(PositionReportORM.timestamp).label("timestamp"),
+            ).filter(PositionReportORM.vessel_id.in_(position_ids)).group_by(PositionReportORM.vessel_id).subquery()
+            latest_positions = {
+                position.vessel_id: position for position in db.query(PositionReportORM).join(
+                    latest_times,
+                    (PositionReportORM.vessel_id == latest_times.c.vessel_id)
+                    & (PositionReportORM.timestamp == latest_times.c.timestamp),
+                ).order_by(PositionReportORM.id).all()
+            }
+        for msg in batch:
+            if msg["type"] == "position":
+                self._upsert_position(db, msg, vessels, latest_positions)
+            elif msg["type"] == "static":
+                self._upsert_vessel_static(msg, vessels)
+
+    def _upsert_position(
+        self, db: Session, msg: dict,
+        vessels: dict[str, VesselORM], latest_positions: dict[str, PositionReportORM],
+    ):
         """Insert a position report and ensure the vessel exists."""
         mmsi = msg["mmsi"]
         data = msg["data"]
@@ -165,7 +207,7 @@ class IngestionService:
         region = msg.get("region")
 
         # Ensure vessel record exists
-        vessel = db.query(VesselORM).filter(VesselORM.mmsi == mmsi).first()
+        vessel = vessels.get(mmsi)
         if not vessel:
             vessel = VesselORM(
                 id=f"ais-{mmsi}",
@@ -177,7 +219,7 @@ class IngestionService:
                 inspection_deficiencies=0,
             )
             db.add(vessel)
-            db.flush()
+            vessels[mmsi] = vessel
             self._vessels_created += 1
             logger.info(f"New vessel: {vessel.name} (MMSI {mmsi}) in {region}")
         else:
@@ -189,7 +231,7 @@ class IngestionService:
 
         static = self._unmatched_static.pop(mmsi, None)
         if static:
-            self._upsert_vessel_static(db, static)
+            self._upsert_vessel_static(static, vessels)
 
         if len(self._vessels_seen) < 5000:
             self._vessels_seen.add(mmsi)
@@ -201,7 +243,7 @@ class IngestionService:
             sog = None  # Discard AIS "not available" sentinel
 
         timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None) if timestamp.tzinfo else timestamp
-        latest = db.query(PositionReportORM).filter_by(vessel_id=vessel.id).order_by(PositionReportORM.timestamp.desc()).first()
+        latest = latest_positions.get(vessel.id)
         if latest and timestamp <= latest.timestamp:
             return
         # Keep the newest position current without storing every AIS transmission.
@@ -230,14 +272,15 @@ class IngestionService:
             nav_status=data.get("nav_status"),
         )
         db.add(pos)
+        latest_positions[vessel.id] = pos
         self._positions_ingested += 1
 
-    def _upsert_vessel_static(self, db: Session, msg: dict):
+    def _upsert_vessel_static(self, msg: dict, vessels: dict[str, VesselORM]):
         """Update vessel metadata from static data message."""
         mmsi = msg["mmsi"]
         data = msg["data"]
 
-        vessel = db.query(VesselORM).filter(VesselORM.mmsi == mmsi).first()
+        vessel = vessels.get(mmsi)
         if not vessel:
             if mmsi not in self._unmatched_static and len(self._unmatched_static) >= 1000:
                 self._unmatched_static.pop(next(iter(self._unmatched_static)))
@@ -297,7 +340,7 @@ class IngestionService:
             if alerts:
                 logger.info(f"Alert scan: {len(alerts)} alerts generated/updated")
 
-            if archive:
+            if archive and not is_durable_storage(db.get_bind()):
                 from app.services.archive_service import archive_old_positions
                 result = archive_old_positions(db=db)
                 if result["archived"] > 0:
@@ -308,11 +351,14 @@ class IngestionService:
             db.close()
 
     def _prune_live_cache(self, db: Session) -> None:
-        live = PositionReportORM.vessel_id.like("ais-%")
-        oldest_kept = db.query(PositionReportORM.id).filter(live).order_by(PositionReportORM.id.desc()).offset(49_999).first()
-        if oldest_kept:
-            from app.services.archive_service import archive_old_positions
-            archive_old_positions(db=db, before_id=oldest_kept[0])
+        from app.services.archive_service import archive_old_positions
+        if is_durable_storage(db.get_bind()):
+            archive_old_positions(db=db)
+        else:
+            live = PositionReportORM.vessel_id.like("ais-%")
+            oldest_kept = db.query(PositionReportORM.id).filter(live).order_by(PositionReportORM.id.desc()).offset(49_999).first()
+            if oldest_kept:
+                archive_old_positions(db=db, before_id=oldest_kept[0])
         orphan_ids = db.query(VesselORM.id).filter(
             VesselORM.id.like("ais-%"),
             ~db.query(PositionReportORM.id).filter(PositionReportORM.vessel_id == VesselORM.id).exists(),

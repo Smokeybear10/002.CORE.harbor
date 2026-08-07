@@ -7,7 +7,7 @@ from typing import Literal, Optional
 import json
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey, Boolean, Index
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -91,6 +91,7 @@ class VesselORM(Base):
 
 class PositionReportORM(Base):
     __tablename__ = "position_reports"
+    __table_args__ = (Index("ix_position_reports_vessel_timestamp", "vessel_id", "timestamp"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     vessel_id = Column(String, ForeignKey("vessels.id"), index=True)
