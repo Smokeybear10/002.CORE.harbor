@@ -24,9 +24,9 @@ export default function IngestBanner({ vesselCount, status, isLive, connectionOk
     if (!zoomRequired && !busy && coverage?.subscribed && vesselCount > 0 && !limited) return null;
     return (
       <section role="status" aria-label="Map coverage" className="absolute left-3 top-[var(--map-panel-top)] z-20 w-[350px] max-w-[calc(100vw-72px)] rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-4">
-        <h2 className="text-sm font-medium text-slate-100">{zoomRequired ? "Zoom in to load live AIS" : busy ? "Live map is busy" : !coverage?.subscribed ? "Connecting to this area" : limited ? `Showing ${vesselCount} of ${vesselsTotal} vessels` : "Listening for vessel reports"}</h2>
+        <h2 className="text-sm font-medium text-slate-100">{zoomRequired ? (vesselCount > 0 ? `Showing ${vesselCount}${limited ? ` of ${vesselsTotal}` : ""} saved vessels` : "Choose a coast or port") : busy ? "Live map is busy" : !coverage?.subscribed ? "Connecting to this area" : limited ? `Showing ${vesselCount} of ${vesselsTotal} vessels` : "Listening for vessel reports"}</h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-400">{zoomRequired
-          ? "Explore anywhere in the world. Zoom into a coast or port to receive live vessel reports."
+          ? vesselCount > 0 ? "Previously received AIS positions. Select a vessel to inspect it, or zoom in for live updates." : "Zoom in anywhere to receive live AIS. Saved positions will appear here as reports arrive."
           : busy ? "The free service is handling other map views. This area will retry automatically."
           : limited ? "Zoom in to see more detail. Coverage follows your map."
           : "Reports appear as AISStream receives them. Coverage varies by location."}</p>

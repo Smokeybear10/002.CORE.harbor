@@ -142,7 +142,7 @@ export default function FloatingChrome({
   const statusLabel = loading ? (isDemo ? "Loading demo" : "Connecting…")
     : isDemo ? "Demo · simulated"
     : !connectionOk ? "AIS offline"
-    : zoomRequired ? "Choose an area"
+    : zoomRequired ? "Saved AIS positions"
     : !statusKnown ? "Status unavailable"
     : !isLive ? "AIS disconnected"
     : coverage?.state === "busy" ? "Waiting for capacity"
@@ -221,7 +221,7 @@ export default function FloatingChrome({
         <div role="status" className="flex items-center gap-2">
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} />
           <span>{statusLabel}</span>
-          {!loading && (isDemo || (!zoomRequired && coverage?.subscribed)) && <span className="hidden border-l border-[var(--workspace-border)] pl-2 text-slate-200 sm:inline">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}</span>}
+          {!loading && (isDemo || vesselCount > 0 || coverage?.subscribed) && <span className="hidden border-l border-[var(--workspace-border)] pl-2 text-slate-200 sm:inline">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}</span>}
         </div>
         {!loading && (isDemo || reportAgeLabel) && <div className="pl-3.5 text-[11px]">
           <span className="sm:hidden">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}{!isDemo && reportAgeLabel && " · "}</span>
