@@ -1,6 +1,7 @@
 import { demoApi } from "./demo-api";
 
 export type DataMode = "demo" | "live";
+export type PositionHistoryCursor = { timestamp: string; id: number };
 export const DEFAULT_DATA_MODE: DataMode = "live";
 export function getDataMode(value: string | null): DataMode {
   return value === "demo" || value === "live" ? value : DEFAULT_DATA_MODE;
@@ -21,10 +22,16 @@ export function canWatchMap(bounds: MapBounds): boolean {
   return width <= 32 && height <= 24 && width * height <= 256;
 }
 
-export const watchMapCoverage = (clientId: string, revision: number, bounds: MapBounds | null) =>
+export const watchMapCoverage = (
+  clientId: string,
+  revision: number,
+  bounds: MapBounds | null,
+  options: { background?: boolean; keepalive?: boolean } = {},
+) =>
   fetchAPI<MapCoverage>("/map/coverage", {
     method: "POST",
-    body: JSON.stringify({ client_id: clientId, revision, bounds }),
+    keepalive: options.keepalive,
+    body: JSON.stringify({ client_id: clientId, revision, bounds, ...(options.background ? { background: true } : {}) }),
   });
 
 // The FastAPI backend is hosted separately from this frontend. When it's down the
@@ -465,8 +472,16 @@ const liveApi = {
   getVerificationRequest: (id: string) =>
     fetchAPI<VerificationRequest>(`/verification-requests/${id}`),
   getIngestionStatus: () => fetchAPI<IngestionStatus>("/ingestion/status"),
-  getVesselReport: (vesselId: string) =>
-    fetchAPI<Record<string, unknown>>(`/vessels/${vesselId}/report`),
+  getVesselReport: (vesselId: string, options: { positionCursor?: PositionHistoryCursor | null; alertOffset?: number; until?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (options.positionCursor) {
+      params.set("position_before", options.positionCursor.timestamp);
+      params.set("position_before_id", String(options.positionCursor.id));
+    }
+    if (options.alertOffset !== undefined) params.set("alert_offset", String(options.alertOffset));
+    if (options.until) params.set("until", options.until);
+    return fetchAPI<Record<string, unknown>>(`/vessels/${vesselId}/report${params.size ? `?${params}` : ""}`);
+  },
   getPositionsAtTime: (timestamp: string) =>
     fetchAPI<TimePositionEntry[]>(`/vessels/positions/at-time?timestamp=${encodeURIComponent(timestamp)}`),
   getRiskHistory: (vesselId: string, hours = 6) =>

@@ -1,27 +1,49 @@
-"""SQLite database setup. Swap connection string for Postgres later."""
+"""Database setup for managed Postgres and local SQLite."""
 
 from __future__ import annotations
 
 from datetime import datetime
 import json
 import os
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine, URL, make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DB_PATH = os.environ.get("HARBOROS_DB", "harboros.db")
+DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 
-# Ensure the parent directory exists. Required on Railway/Fly/Render when pointing at
-# a mounted volume (e.g. HARBOROS_DB=/data/harboros.db) — SQLite won't create the dir.
-_db_dir = os.path.dirname(os.path.abspath(DB_PATH))
-if _db_dir:
-    os.makedirs(_db_dir, exist_ok=True)
 
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+def create_database_engine(database_url: str | URL) -> Engine:
+    try:
+        url = make_url(database_url)
+    except ArgumentError:
+        raise ValueError("DATABASE_URL must be a valid PostgreSQL or SQLite URL") from None
+    if url.drivername in {"postgres", "postgresql", "postgresql+psycopg"}:
+        url = url.set(drivername="postgresql+psycopg")
+        return create_engine(
+            url, pool_pre_ping=True, pool_recycle=300, pool_size=3,
+            max_overflow=2, pool_timeout=10,
+            connect_args={"connect_timeout": 10, "prepare_threshold": None},
+        )
+    if url.drivername != "sqlite":
+        raise ValueError("DATABASE_URL must use PostgreSQL or SQLite")
+    if url.database and url.database != ":memory:":
+        database_path = Path(url.database).expanduser().resolve()
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        url = url.set(database=str(database_path))
+    return create_engine(url, connect_args={"check_same_thread": False})
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+engine = create_database_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def is_durable_storage(bind: Engine | None = None) -> bool:
+    return (bind or engine).dialect.name == "postgresql"
 
 
 class Base(DeclarativeBase):
@@ -51,9 +73,7 @@ _VERIFICATION_REQUEST_SATELLITE_COLUMNS: dict[str, str] = {
 
 
 def _table_columns(table_name: str) -> set[str]:
-    with engine.begin() as conn:
-        rows = conn.execute(text(f"PRAGMA table_info({table_name})")).mappings().all()
-    return {row["name"] for row in rows}
+    return {column["name"] for column in inspect(engine).get_columns(table_name)}
 
 
 def _add_missing_verification_request_columns():
@@ -68,6 +88,8 @@ def _add_missing_verification_request_columns():
 
     with engine.begin() as conn:
         for name, ddl in missing.items():
+            if ddl == "DATETIME" and engine.dialect.name == "postgresql":
+                ddl = "TIMESTAMP"
             conn.execute(text(f"ALTER TABLE verification_requests ADD COLUMN {name} {ddl}"))
 
 
@@ -246,6 +268,8 @@ def reclaim_free_pages():
     until the disk is full. VACUUM needs free space equal to the live data, so skip
     it when the file is already large and fall back to incremental_vacuum.
     """
+    if engine.dialect.name != "sqlite":
+        return 0.0
     with engine.begin() as conn:
         free_pages = conn.execute(text("PRAGMA freelist_count")).scalar() or 0
         page_size = conn.execute(text("PRAGMA page_size")).scalar() or 4096
@@ -281,4 +305,7 @@ def init_db():
         AlertORM, AnomalySignalORM, VerificationRequestORM, AlertAuditORM
     )
     Base.metadata.create_all(bind=engine)
+    for index in PositionReportORM.__table__.indexes:
+        if index.name == "ix_position_reports_vessel_timestamp":
+            index.create(bind=engine, checkfirst=True)
     upgrade_db_schema()

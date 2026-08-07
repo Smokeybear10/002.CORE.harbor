@@ -20,6 +20,7 @@ import { DEMO_DURATION_MS, DEMO_PLAYBACK_RATE, getDemoElapsed, setDemoElapsed } 
 import type { Vessel, VesselDetail, Alert, Geofence, IngestionStatus, Region, RiskDistribution } from "@/app/lib/api";
 
 const REFRESH_INTERVAL_MS = 5000;
+const BACKGROUND_REFRESH_INTERVAL_MS = 60_000;
 
 // Fast equality checks — skip state updates when payload hasn't meaningfully changed.
 // Cheaper than re-rendering a 500-marker map every tick.
@@ -216,25 +217,44 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     }
   }, [autoTour, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-refresh — pauses when tab hidden, skips state updates when payload is unchanged.
+  // Hidden tabs renew coverage without downloading vessel and alert payloads.
   useEffect(() => {
     if (refreshTimer.current) clearInterval(refreshTimer.current);
     if (isDemo || loading || !viewport) return;
     let cancelled = false;
     let refreshing = false;
+    let released = false;
+    let backgroundRenewedAt = 0;
     viewerIdRef.current ??= crypto.randomUUID();
     const viewerId = viewerIdRef.current;
-    const revision = ++viewportRevisionRef.current;
+    let revision = ++viewportRevisionRef.current;
     const bounds = canWatchMap(viewport) ? viewport : null;
 
-    const tick = async () => {
-      if (refreshing) return;
-      // Don't hammer the API when the user isn't looking.
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      refreshing = true;
+    const renewBackgroundCoverage = async () => {
+      if (cancelled || released || !bounds) return;
+      backgroundRenewedAt = Date.now();
+      const requestRevision = revision;
       try {
-        const nextCoverage = await watchMapCoverage(viewerId, revision, bounds);
-        if (cancelled) return;
+        const nextCoverage = await watchMapCoverage(viewerId, requestRevision, bounds, { background: true });
+        if (cancelled || released || requestRevision !== revision) return;
+        setCoverage(nextCoverage);
+      } catch {
+        // The lease bridges timer throttling; another renewal follows next minute.
+      }
+    };
+
+    const tick = async () => {
+      if (cancelled || released) return;
+      if (document.visibilityState === "hidden") {
+        if (Date.now() - backgroundRenewedAt >= BACKGROUND_REFRESH_INTERVAL_MS) await renewBackgroundCoverage();
+        return;
+      }
+      if (refreshing) return;
+      refreshing = true;
+      const requestRevision = revision;
+      try {
+        const nextCoverage = await watchMapCoverage(viewerId, requestRevision, bounds);
+        if (cancelled || released || requestRevision !== revision) return;
         setCoverage(nextCoverage);
         const watching = nextCoverage.state === "watching" && bounds !== null;
         const [v, a, status] = await Promise.all([
@@ -242,10 +262,10 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
           watching ? api.getAlerts(alertStatusFilter || undefined, undefined, alertsLimitRef.current, 0, bounds) : { items: [], total: 0 },
           api.getIngestionStatus().catch(() => null),
         ]);
-        if (cancelled) return;
+        if (cancelled || released || requestRevision !== revision) return;
         if (Object.keys(regions).length === 0) {
           const [nextRegions, nextGeofences] = await Promise.all([api.getRegions(), api.getGeofences()]);
-          if (cancelled) return;
+          if (cancelled || released || requestRevision !== revision) return;
           setRegions(nextRegions);
           setGeofences(nextGeofences);
         }
@@ -259,12 +279,12 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         setIngestionStatus(status);
         if (selectedVesselId) {
           const detail = await api.getVesselDetail(selectedVesselId).catch(() => null);
-          if (cancelled) return;
+          if (cancelled || released || requestRevision !== revision) return;
           if (detail) setSelectedVessel((prev) => prev?.id === detail.id ? detail : prev);
         }
         setConnectionOk(true);
       } catch {
-        if (cancelled) return;
+        if (cancelled || released || requestRevision !== revision) return;
         if (connectionOk) showToast("Connection lost — retrying...", "error");
         setConnectionOk(false);
       } finally {
@@ -274,13 +294,38 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
 
     const initialTick = setTimeout(tick, 650);
     refreshTimer.current = setInterval(tick, REFRESH_INTERVAL_MS);
-    const handleVisibility = () => { if (document.visibilityState === "visible") tick(); };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        void renewBackgroundCoverage();
+      } else if (!released) {
+        revision = ++viewportRevisionRef.current;
+        void tick();
+      }
+    };
+    const releaseCoverage = () => {
+      if (released) return;
+      released = true;
+      revision = ++viewportRevisionRef.current;
+      void watchMapCoverage(viewerId, revision, null, { keepalive: true }).catch(() => {});
+    };
+    const restoreCoverage = () => {
+      if (!released) return;
+      released = false;
+      backgroundRenewedAt = 0;
+      revision = ++viewportRevisionRef.current;
+      void tick();
+    };
     document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", releaseCoverage);
+    window.addEventListener("pageshow", restoreCoverage);
     return () => {
       cancelled = true;
+      releaseCoverage();
       clearTimeout(initialTick);
       if (refreshTimer.current) clearInterval(refreshTimer.current);
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", releaseCoverage);
+      window.removeEventListener("pageshow", restoreCoverage);
     };
   }, [viewport, alertStatusFilter, api, connectionOk, isDemo, loading, regions, selectedVesselId, showToast]);
 

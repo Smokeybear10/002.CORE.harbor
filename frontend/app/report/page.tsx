@@ -2,11 +2,23 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { getApi, getDataMode, type DataMode } from "@/app/lib/api";
+import { getApi, getDataMode, type DataMode, type PositionHistoryCursor } from "@/app/lib/api";
 import { riskLevel } from "@/app/lib/risk";
 import { SiteNav, SiteFooter } from "@/app/components/SiteChrome";
 
 type Report = Record<string, unknown>;
+type History = {
+  position_count: number;
+  oldest_report_at: string | null;
+  newest_report_at: string | null;
+  position_offset: number;
+  next_position_cursor: PositionHistoryCursor | null;
+  page_size: number;
+  until: string;
+  durable: boolean;
+  retention_days: number | null;
+  max_position_rows: number;
+};
 
 const SIGNAL_LABELS: Record<string, string> = {
   ais_gap: "AIS Dark Period",
@@ -95,10 +107,17 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
   const mapHref = `/?mode=${mode}`;
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [positionCursors, setPositionCursors] = useState<(PositionHistoryCursor | null)[]>([null]);
 
   useEffect(() => {
     if (!vesselId) return;
-    api.getVesselReport(vesselId).then(setReport).catch(() => setError("Failed to load report"));
+    let cancelled = false;
+    api.getVesselReport(vesselId)
+      .then((data) => { if (!cancelled) setReport(data); })
+      .catch(() => { if (!cancelled) setError("Failed to load report"); });
+    return () => { cancelled = true; };
   }, [api, vesselId]);
 
   if (!vesselId) return <ErrorState message="No vessel specified." mapHref={mapHref} />;
@@ -113,6 +132,24 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
   const audit = report.alert_audit_trail as Record<string, unknown>[];
   const notes = report.operator_notes ? String(report.operator_notes) : null;
   const generatedAt = report.generated_at ? new Date(String(report.generated_at)) : null;
+  const history = report.history as History | undefined;
+  const pastAlerts = (report.alert_history ?? []) as Record<string, unknown>[];
+  const alertTotal = Number(report.alert_history_total ?? 0);
+  const alertOffset = Number(report.alert_offset ?? 0);
+
+  async function loadHistory(cursors: (PositionHistoryCursor | null)[], nextAlertOffset: number) {
+    if (!vesselId || !history || historyLoading) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      setReport(await api.getVesselReport(vesselId, { positionCursor: cursors.at(-1), alertOffset: nextAlertOffset, until: history.until }));
+      setPositionCursors(cursors);
+    } catch {
+      setHistoryError("Couldn’t load this part of the history. Try again.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   const score = Number(risk.score ?? 0);
   const level = riskLevel(score);
@@ -123,14 +160,12 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
       <SiteNav mapHref={mapHref} />
 
       <div className="max-w-[1100px] mx-auto px-8 pt-10 pb-24">
-        {/* Classification banner */}
+
         <div className="flex items-center justify-between mb-6 pb-5 border-b border-white/[0.06]">
           <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-red-400/30 bg-red-500/[0.08] text-[10px] font-semibold tracking-[0.18em] uppercase text-red-300">
-              <span className="w-1 h-1 rounded-full bg-red-400" />
-              {isDemo ? "Demo report" : "Confidential"}
+            <span className="text-[11px] font-medium tracking-[0.08em] uppercase text-slate-400">
+              {isDemo ? "Demo vessel report" : "Vessel report"}
             </span>
-            <span className="text-[10.5px] font-mono tracking-[0.18em] uppercase text-slate-500">Incident Report</span>
           </div>
           <div className="flex items-center gap-3">
             {generatedAt && (
@@ -223,7 +258,7 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
 
         {/* Position */}
         {position && (
-          <Card label="Current Position" className="mb-4">
+          <Card label="Last reported position" className="mb-4">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <KV label="Latitude" value={Number(position.latitude).toFixed(5)} mono />
               <KV label="Longitude" value={Number(position.longitude).toFixed(5)} mono />
@@ -267,9 +302,26 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
           </Card>
         )}
 
-        {/* Position Trail */}
-        {trail?.length > 0 && (
-          <Card label={`Position Trail · ${trail.length} points`} className="mb-4" padding="none">
+        {history && (
+          <Card label={history.durable ? "Saved history" : "Session history"} className="mb-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <KV label="Position reports" value={history.position_count.toLocaleString()} mono />
+              <KV label="First retained report" value={history.oldest_report_at ? new Date(history.oldest_report_at).toLocaleString() : "—"} />
+              <KV label="Latest retained report" value={history.newest_report_at ? new Date(history.newest_report_at).toLocaleString() : "—"} />
+            </div>
+            <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
+              {history.durable
+                ? `Tracks are kept for up to ${history.retention_days} days, within a shared ${history.max_position_rows.toLocaleString()}-position limit. The last known position may be kept longer. Alerts and operator notes remain saved.`
+                : "This service is using temporary storage. History may be lost when it restarts."}
+            </p>
+            <p className="mt-2 text-[11px] text-slate-500">This report uses the records currently retained for this vessel. Print / PDF includes the records shown below.</p>
+          </Card>
+        )}
+        {historyError && <p role="alert" className="mb-4 text-sm text-amber-300">{historyError}</p>}
+
+        {(trail?.length > 0 || (history && positionCursors.length > 1)) && (
+          <Card label={`Position history · ${history && trail.length ? `${history.position_offset + 1}–${history.position_offset + trail.length} of ${history.position_count.toLocaleString()}` : `${trail.length} points`}`} className="mb-4" padding="none">
+            {trail.length === 0 && <p className="px-5 pb-4 text-sm text-slate-400">These older positions are no longer retained.</p>}
             <div className="overflow-x-auto scroll-thin">
               <table className="w-full text-[11.5px]">
                 <thead>
@@ -285,7 +337,7 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
                 <tbody>
                   {trail.map((p, i) => (
                     <tr key={i} className="border-b border-white/[0.03] last:border-b-0 font-mono text-slate-400 hover:bg-white/[0.015]">
-                      <Td>{new Date(String(p.timestamp)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</Td>
+                      <Td>{new Date(String(p.timestamp)).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</Td>
                       <Td>{Number(p.latitude).toFixed(5)}</Td>
                       <Td>{Number(p.longitude).toFixed(5)}</Td>
                       <Td>{p.speed_over_ground != null ? Number(p.speed_over_ground).toFixed(1) : "—"}</Td>
@@ -296,12 +348,45 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
                 </tbody>
               </table>
             </div>
+            {history && (history.next_position_cursor || positionCursors.length > 1) && (
+              <HistoryPager
+                hasNewer={positionCursors.length > 1} hasOlder={history.next_position_cursor !== null}
+                loading={historyLoading}
+                onNewer={() => void loadHistory(positionCursors.slice(0, -1), alertOffset)}
+                onOlder={() => {
+                  if (history.next_position_cursor) void loadHistory([...positionCursors, history.next_position_cursor], alertOffset);
+                }}
+              />
+            )}
+          </Card>
+        )}
+
+        {pastAlerts.length > 0 && (
+          <Card label={`Alert history · ${alertTotal.toLocaleString()} saved`} className="mb-4">
+            <div className="divide-y divide-white/[0.06]">
+              {pastAlerts.map((alert) => (
+                <div key={String(alert.id)} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+                    <time className="text-slate-400">{new Date(String(alert.created_at)).toLocaleString()}</time>
+                    <span className="capitalize text-slate-200">{String(alert.status).replace(/_/g, " ")}</span>
+                    <span className="font-mono text-slate-400">Risk {Number(alert.risk_score ?? 0)} / 100</span>
+                  </div>
+                  {alert.explanation ? <p className="mt-2 text-[12px] leading-relaxed text-slate-400">{String(alert.explanation)}</p> : null}
+                  {alert.operator_notes ? <p className="mt-2 whitespace-pre-wrap text-[12px] text-slate-300"><span className="text-slate-500">Operator note: </span>{String(alert.operator_notes)}</p> : null}
+                </div>
+              ))}
+            </div>
+            {history && alertTotal > history.page_size && (
+              <HistoryPager hasNewer={alertOffset > 0} hasOlder={alertOffset + history.page_size < alertTotal} loading={historyLoading}
+                onNewer={() => void loadHistory(positionCursors, Math.max(0, alertOffset - history.page_size))}
+                onOlder={() => void loadHistory(positionCursors, alertOffset + history.page_size)} />
+            )}
           </Card>
         )}
 
         {/* Audit Trail */}
         {audit?.length > 0 && (
-          <Card label="Audit Trail" className="mb-4">
+          <Card label="Recent operator activity" className="mb-4">
             <div className="space-y-1.5">
               {audit.map((e, i) => (
                 <div key={i} className="flex items-start gap-3 text-[11.5px] py-1.5 border-t border-white/[0.04] first:border-t-0 first:pt-0">
@@ -319,7 +404,7 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
         )}
 
         {/* Notes */}
-        {notes && (
+        {notes && pastAlerts.length === 0 && (
           <Card label="Operator Notes" className="mb-4">
             <p className="text-[13px] text-slate-300 leading-[1.65]">{notes}</p>
           </Card>
@@ -327,7 +412,7 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
 
         {/* Footer */}
         <div className="mt-12 pt-6 border-t border-white/[0.06] text-center text-[10.5px] font-mono tracking-[0.18em] uppercase text-slate-600">
-          HarborOS · Maritime Awareness Platform · {isDemo ? "Demo report" : "Confidential"}
+          H4BOR · {isDemo ? "Sample data" : "AIS vessel report"}
         </div>
       </div>
 
@@ -376,4 +461,24 @@ function Th({ children }: { children: React.ReactNode }) {
 
 function Td({ children }: { children: React.ReactNode }) {
   return <td className="px-4 py-1.5">{children}</td>;
+}
+
+function HistoryPager({ hasNewer, hasOlder, loading, onNewer, onOlder }: {
+  hasNewer: boolean;
+  hasOlder: boolean;
+  loading: boolean;
+  onNewer: () => void;
+  onOlder: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-t border-white/[0.06] px-4 py-3 print:hidden">
+      <span aria-live="polite" className="text-[11px] text-slate-500">{loading ? "Loading history…" : "Older records on later pages"}</span>
+      <div className="flex gap-2">
+        <button type="button" disabled={loading || !hasNewer} onClick={onNewer}
+          className="btn-secondary rounded-md px-3 py-1.5 text-xs disabled:cursor-default disabled:opacity-35">Newer</button>
+        <button type="button" disabled={loading || !hasOlder} onClick={onOlder}
+          className="btn-secondary rounded-md px-3 py-1.5 text-xs disabled:cursor-default disabled:opacity-35">Older</button>
+      </div>
+    </div>
+  );
 }

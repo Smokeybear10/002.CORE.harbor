@@ -8,7 +8,7 @@ import logging
 import math
 import uuid
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.domain import (
@@ -24,6 +24,7 @@ from app.data_sources.nws_adapter import get_weather
 from app.services.map_coverage import MapBounds, vessels_in_bounds
 
 logger = logging.getLogger("harboros.alerts")
+MAX_ANALYSIS_POSITIONS = 120
 
 
 def generate_alerts_for_all_vessels(
@@ -41,10 +42,14 @@ def generate_alerts_for_all_vessels(
     - Nearby-vessel data (collision risk)
     - Learned historical baselines (route deviation, pattern matching)
     """
-    latest_times = db.query(
+    observation_cutoff = min((since for _, since in coverage_windows), default=observed_since) if coverage_windows is not None else observed_since
+    latest_query = db.query(
         PositionReportORM.vessel_id,
         func.max(PositionReportORM.timestamp).label("timestamp"),
-    ).group_by(PositionReportORM.vessel_id).subquery()
+    )
+    if observation_cutoff is not None:
+        latest_query = latest_query.filter(PositionReportORM.timestamp >= observation_cutoff)
+    latest_times = latest_query.group_by(PositionReportORM.vessel_id).subquery()
     latest_rows = db.query(PositionReportORM, VesselORM.name).join(
         latest_times,
         (PositionReportORM.vessel_id == latest_times.c.vessel_id)
@@ -86,9 +91,23 @@ def generate_alerts_for_all_vessels(
     vessels = vessel_query.order_by(VesselORM.id).all()
     vessel_ids = [vessel.id for vessel in vessels]
     positions_by_vessel = defaultdict(list)
-    positions = db.query(PositionReportORM).filter(
+    history_query = select(
+        PositionReportORM.id,
+        func.row_number().over(
+            partition_by=PositionReportORM.vessel_id,
+            order_by=(PositionReportORM.timestamp.desc(), PositionReportORM.id.desc()),
+        ).label("rank"),
+    ).where(
         PositionReportORM.vessel_id.in_(vessel_ids),
-    ).order_by(PositionReportORM.timestamp).all()
+    )
+    if observation_cutoff is not None:
+        history_query = history_query.where(PositionReportORM.timestamp >= observation_cutoff)
+    ranked_history = history_query.subquery()
+    positions = db.query(PositionReportORM).filter(
+        PositionReportORM.id.in_(
+            select(ranked_history.c.id).where(ranked_history.c.rank <= MAX_ANALYSIS_POSITIONS),
+        ),
+    ).order_by(PositionReportORM.timestamp, PositionReportORM.id).all()
     for position in positions:
         started = observation_starts.get(position.vessel_id)
         if started is None or position.timestamp >= started:
