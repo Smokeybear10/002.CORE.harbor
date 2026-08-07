@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect } from "react";
 
 export interface ToastItem {
   id: string;
@@ -25,19 +25,17 @@ const COLORS: Record<ToastItem["type"], { border: string; icon: string; bg: stri
   info: { border: "border-blue-500/25", icon: "text-blue-400", bg: "bg-blue-500/10" },
 };
 
-function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string) => void }) {
   useEffect(() => {
-    timerRef.current = setTimeout(onDismiss, 3000);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [onDismiss]);
+    const timer = setTimeout(() => onDismiss(toast.id), 3000);
+    return () => clearTimeout(timer);
+  }, [onDismiss, toast.id]);
 
   const c = COLORS[toast.type];
 
   return (
     <div
-      className={`w-72 ${c.bg} backdrop-blur-md border ${c.border} rounded-lg px-3 py-2.5 flex items-start gap-2.5 shadow-xl shadow-black/30`}
+      className={`pointer-events-auto flex w-72 max-w-[calc(100vw-24px)] items-center gap-2.5 rounded-lg border ${c.border} bg-[#111923] pl-3 pr-1 shadow-lg`}
       style={{ animation: "fade-in-up 0.25s ease-out" }}
     >
       <div className={`shrink-0 mt-0.5 ${c.icon}`}>
@@ -45,10 +43,11 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
           <path d={ICONS[toast.type]} />
         </svg>
       </div>
-      <p className="flex-1 text-[11px] text-slate-200 leading-relaxed">{toast.message}</p>
+      <p className="flex-1 py-3 text-[13px] text-slate-200 leading-relaxed">{toast.message}</p>
       <button
-        onClick={onDismiss}
-        className="shrink-0 text-slate-500 hover:text-slate-300 transition-colors mt-0.5"
+        onClick={() => onDismiss(toast.id)}
+        aria-label="Dismiss notification"
+        className="flex h-11 w-11 shrink-0 items-center justify-center text-slate-400 transition-colors hover:text-slate-100"
       >
         <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
           <path d="M18 6L6 18M6 6l12 12" />
@@ -59,14 +58,12 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
 }
 
 export default function Toast({ toasts, onDismiss }: ToastProps) {
-  const handleDismiss = useCallback((id: string) => () => onDismiss(id), [onDismiss]);
-
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2">
+    <div role="status" aria-live="polite" className="pointer-events-none absolute bottom-[calc(var(--map-panel-bottom,16px)+12px)] right-3 z-[100] flex flex-col gap-2">
       {toasts.map((t) => (
-        <ToastCard key={t.id} toast={t} onDismiss={handleDismiss(t.id)} />
+        <ToastCard key={t.id} toast={t} onDismiss={onDismiss} />
       ))}
     </div>
   );
