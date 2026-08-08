@@ -135,33 +135,33 @@ export default function FloatingChrome({
     ? shortName(activeRegion, regions[activeRegion]?.name ?? activeRegion)
     : isDemo ? "All regions" : zoomRequired ? "World map" : "Map area";
 
-  const controlClass = "flex min-h-11 min-w-11 items-center gap-2 rounded-sm px-3 text-sm text-[var(--workspace-ink)] transition-colors hover:bg-[var(--workspace-subtle)] disabled:cursor-not-allowed disabled:opacity-40";
+  const controlClass = "flex min-h-11 min-w-11 items-center gap-2 rounded-md px-3 text-sm text-[var(--workspace-ink)] transition-colors hover:bg-[var(--workspace-subtle)] disabled:cursor-not-allowed disabled:opacity-40";
   const reportTime = lastReportAt ? Date.parse(/[Zz]$|[+-]\d{2}:\d{2}$/.test(lastReportAt) ? lastReportAt : `${lastReportAt}Z`) : NaN;
   const reportAge = Number.isFinite(reportTime) ? Math.max(0, Math.floor((now - reportTime) / 1000)) : null;
   const receiving = !loading && !zoomRequired && connectionOk && isLive && coverage?.subscribed && reportAge !== null && reportAge < 120;
-  const statusLabel = loading ? (isDemo ? "Loading simulation" : "Connecting to AIS…")
-    : isDemo ? "Simulated traffic"
+  const statusLabel = loading ? (isDemo ? "Loading demo…" : "Connecting…")
+    : isDemo ? "Demo · simulated traffic"
     : !connectionOk ? "AIS offline"
-    : zoomRequired ? "Saved AIS positions"
+    : zoomRequired ? "Saved positions"
     : !statusKnown ? "AIS status unavailable"
     : !isLive ? "AIS disconnected"
-    : coverage?.state === "busy" ? "Waiting for capacity"
-    : !coverage?.subscribed ? "Connecting to area"
+    : coverage?.state === "busy" ? "Area queued"
+    : !coverage?.subscribed ? "Connecting…"
     : receiving ? "Receiving AIS"
     : reportAge === null ? "Waiting for reports" : "No recent AIS reports";
   const reportAgeLabel = reportAge === null ? null : reportAge < 60 ? `${reportAge}s ago` : reportAge < 3600 ? `${Math.floor(reportAge / 60)}m ago` : `${Math.floor(reportAge / 3600)}h ago`;
 
   return (
     <>
-      <header aria-label="Map controls" className="chart-sidebar-header absolute left-0 right-0 top-0 z-30 grid h-28 grid-cols-[1fr_auto_auto_auto] grid-rows-[44px_44px] gap-x-1 gap-y-2 border-b border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 py-2 lg:right-auto lg:h-[245px] lg:w-[300px] lg:grid-cols-2 lg:grid-rows-[repeat(4,44px)] lg:gap-x-2 lg:border-r lg:px-5 lg:py-5">
-        <div className="col-start-1 row-start-1 flex min-w-0 items-center justify-between gap-1 lg:col-span-2">
-          <h2 className="text-lg font-semibold text-[var(--workspace-ink)]">
+      <header aria-label="Map controls" className="map-toolbar">
+        <div className="map-toolbar-title">
+          <h2 className="text-base font-semibold text-[var(--workspace-ink)]">
             <Link href={`/?mode=${mode}`} aria-label="Vessel map" className="inline-flex min-h-11 items-center">Vessels</Link>
           </h2>
-          {isDemo && <button type="button" aria-label="Connect to live AIS" onClick={() => onModeChange("live")} className="min-h-11 shrink-0 px-2 text-xs text-[var(--workspace-muted)] underline underline-offset-4 hover:text-[var(--workspace-ink)]">Use live</button>}
+          {isDemo && <button type="button" aria-label="Connect to live AIS" onClick={() => onModeChange("live")} className="map-live-switch min-h-11 shrink-0 px-2 text-xs text-[var(--workspace-muted)] underline underline-offset-4 hover:text-[var(--workspace-ink)]">Use live</button>}
         </div>
 
-        <div ref={regionMenuRef} className="relative col-span-4 col-start-1 row-start-2 min-w-0 lg:col-span-2">
+        <div ref={regionMenuRef} className="map-toolbar-region relative min-w-0">
           <button
             type="button"
             disabled={Object.keys(regions).length === 0}
@@ -170,7 +170,7 @@ export default function FloatingChrome({
             aria-label={`Select region: ${activeLabel}`}
             onClick={() => setRegionOpen((value) => !value)}
             data-tour="regions"
-            className={`${controlClass} w-full justify-between border border-[var(--workspace-border)] ${regionOpen ? "bg-[var(--workspace-subtle)]" : ""}`}
+            className={`${controlClass} w-full justify-between ${regionOpen ? "bg-[var(--workspace-subtle)]" : ""}`}
           >
             <span className="min-w-0 truncate">{activeLabel}</span>
             <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`shrink-0 transition-transform ${regionOpen ? "rotate-180" : ""}`}>
@@ -178,10 +178,9 @@ export default function FloatingChrome({
             </svg>
           </button>
           {regionOpen && (
-            <div id="region-options" className="absolute left-0 top-[calc(100%+4px)] z-40 max-h-[60dvh] w-full overflow-y-auto rounded-sm border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1 shadow-md">
-              <div className="border-b border-[var(--workspace-border)] px-3 pb-3 pt-2">
-                <h3 className="text-sm font-medium text-[var(--workspace-ink)]">{isDemo ? "Demo area" : "Go to an area"}</h3>
-                <p className="mt-1 text-xs leading-relaxed text-[var(--workspace-muted)]">{isDemo ? "Simulated traffic in LA / Long Beach." : "Choose a location or pan the map to receive AIS reports."}</p>
+            <div id="region-options" className="workspace-menu absolute left-0 top-[calc(100%+8px)] z-40 max-h-[60dvh] w-full min-w-[240px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5">
+              <div className="border-b border-[var(--workspace-border)] px-3 py-2">
+                <h3 className="text-xs font-medium text-[var(--workspace-muted)]">{isDemo ? "Demo area" : "Locations"}</h3>
               </div>
               {Object.keys(regions).length > 1 && <RegionItem
                 name={isDemo ? "All regions" : "World map"}
@@ -202,28 +201,28 @@ export default function FloatingChrome({
                   onClick={() => { onSelectRegion(key); setRegionOpen(false); }}
                 />
               ))}
-              {Object.keys(regions).length === 0 && <p className="px-3 py-2 text-xs text-[var(--workspace-muted)]">Regions will appear when vessel data is available.</p>}
+              {Object.keys(regions).length === 0 && <p className="px-3 py-2 text-xs text-[var(--workspace-muted)]">No locations available.</p>}
             </div>
           )}
         </div>
 
-        <button type="button" aria-label="Search vessels and commands" disabled={loading || (!connectionOk && vesselCount === 0)} onClick={onOpenCommandPalette} className={`${controlClass} col-start-2 row-start-1 lg:col-span-2 lg:col-start-1 lg:row-start-3 lg:justify-start lg:border lg:border-[var(--workspace-border)]`}>
+        <button type="button" aria-label="Search vessels and commands" disabled={loading || (!connectionOk && vesselCount === 0)} onClick={onOpenCommandPalette} className={`${controlClass} map-toolbar-search`}>
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-5-5" /></svg>
-          <span className="hidden sm:inline">Search<span className="hidden lg:inline"> vessels</span></span>
+          <span className="hidden md:inline">Search vessels</span>
           <kbd className="ml-auto hidden text-xs text-[var(--workspace-muted)] lg:inline">⌘K</kbd>
         </button>
-        <button type="button" data-tour="analytics-btn" aria-label="Analytics" disabled={(loading || !connectionOk) && !analyticsOpen} aria-pressed={analyticsOpen} onClick={onToggleAnalytics} className={`${controlClass} col-start-3 row-start-1 lg:col-start-1 lg:row-start-4 ${analyticsOpen ? "bg-[var(--workspace-subtle)]" : ""}`}>
+        <button type="button" data-tour="analytics-btn" aria-label="Analytics" disabled={(loading || !connectionOk) && !analyticsOpen} aria-pressed={analyticsOpen} onClick={onToggleAnalytics} className={`${controlClass} map-toolbar-analytics ${analyticsOpen ? "bg-[var(--workspace-subtle)]" : ""}`}>
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l4-4 4 4 5-5" /></svg>
-          <span className="hidden lg:inline">Analytics</span>
+          <span>Analytics</span>
         </button>
-        <Link href="/docs" className={`${controlClass} col-start-4 row-start-1 lg:col-start-2 lg:row-start-4`}>Docs</Link>
+        <Link href="/docs" className={`${controlClass} map-toolbar-help`}>Help</Link>
       </header>
 
-      <section aria-label="AIS feed status" className="chart-status-bar absolute bottom-0 left-0 right-0 z-30 flex h-8 items-center justify-between gap-3 border-t border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-[11px] text-[var(--workspace-muted)] sm:text-xs lg:left-[300px] lg:px-4">
+      <section aria-label="AIS feed status" className="chart-status-bar absolute bottom-0 left-0 right-0 z-30 flex h-8 items-center justify-between gap-3 border-t border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs text-[var(--workspace-muted)] lg:left-[300px] lg:px-4">
         <span role="status" className="min-w-0 truncate" title={statusLabel}>{statusLabel}</span>
         {!loading && (isDemo || reportAgeLabel || vesselCount > 0) && <span className="flex shrink-0 items-center gap-3 whitespace-nowrap tabular-nums">
           <span>{vesselCount.toLocaleString()} {vesselCount === 1 ? "vessel" : "vessels"}</span>
-          {!isDemo && reportAgeLabel && <time aria-label={`Last AIS report ${reportAgeLabel}`} dateTime={new Date(reportTime).toISOString()} title={`Last AIS report: ${new Date(reportTime).toUTCString()}`}>Updated {reportAgeLabel}</time>}
+          {!isDemo && reportAgeLabel && <time aria-label={`Last AIS report ${reportAgeLabel}`} dateTime={new Date(reportTime).toISOString()} title={`Last AIS report: ${new Date(reportTime).toUTCString()}`}>Last report {reportAgeLabel}</time>}
         </span>}
       </section>
     </>
@@ -250,7 +249,7 @@ function RegionItem({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`group min-h-11 w-full flex items-center justify-between gap-3 px-3 py-2 rounded-sm text-[13px] transition-colors ${
+      className={`group min-h-11 w-full flex items-center justify-between gap-3 px-3 py-2 rounded text-sm transition-colors ${
         active ? "bg-[var(--workspace-subtle)] text-[var(--workspace-ink)]" : "text-[var(--workspace-muted)] hover:bg-[var(--workspace-subtle)]"
       }`}
     >

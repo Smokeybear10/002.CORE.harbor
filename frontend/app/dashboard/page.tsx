@@ -32,6 +32,7 @@ function shallowVesselListEqual(a: Vessel[], b: Vessel[]): boolean {
     if (x.id !== y.id) return false;
     if (x.name !== y.name || x.vessel_type !== y.vessel_type) return false;
     if (x.risk_score !== y.risk_score) return false;
+    if (x.risk_assessed_at !== y.risk_assessed_at) return false;
     if (x.recommended_action !== y.recommended_action) return false;
     if (x.is_inactive !== y.is_inactive || x.is_resolved !== y.is_resolved) return false;
     const xp = x.latest_position, yp = y.latest_position;
@@ -123,6 +124,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const liveVesselsRef = useRef<Vessel[]>([]);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionRevisionRef = useRef(0);
   const analyticsCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showAnalyticsRef = useRef(showAnalytics);
   useEffect(() => { showAnalyticsRef.current = showAnalytics; }, [showAnalytics]);
@@ -354,6 +356,9 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
 
   // Region change handler
   const handleRegionChange = useCallback(async (regionKey: string | null) => {
+    selectionRevisionRef.current += 1;
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
+    setDetailClosing(false);
     setActiveRegion(regionKey);
     setSelectedVessel(null);
     setSelectedAlertId(null);
@@ -383,10 +388,10 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     } catch {}
   }, [regions, api, alertStatusFilter, isDemo]);
 
-  const handleSelectVessel = useCallback(async (vesselId: string) => {
-    // Cancel any pending close animation
-    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; setDetailClosing(false); }
-    // Close analytics if open (use ref to avoid stale closure from map markers)
+  const handleSelectVessel = useCallback(async (vesselId: string, alertId?: string) => {
+    const revision = ++selectionRevisionRef.current;
+    if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
+    setDetailClosing(false);
     if (showAnalyticsRef.current) {
       setAnalyticsClosing(true);
       if (analyticsCloseTimerRef.current) clearTimeout(analyticsCloseTimerRef.current);
@@ -394,15 +399,17 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         setShowAnalytics(false);
         setAnalyticsClosing(false);
         analyticsCloseTimerRef.current = null;
-      }, 200);
+      }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200);
     }
     setSatelliteOverlay(null);
     setMapClickFocus(null);
     try {
       const detail = await api.getVesselDetail(vesselId);
+      if (selectionRevisionRef.current !== revision) return;
       setSelectedVessel(detail);
-      const matchingAlert = alerts.find((a) => a.vessel_id === vesselId);
-      setSelectedAlertId(matchingAlert?.id ?? detail.alert_id ?? null);
+      const matchingAlert = alerts.find((alert) => alert.vessel_id === vesselId);
+      setSelectedAlertId(alertId ?? matchingAlert?.id ?? detail.alert_id ?? null);
+      setVessels((previous) => previous.some((vessel) => vessel.id === detail.id) ? previous : [...previous, detail]);
       if (detail.latest_position) {
         setMapTarget({
           center: [detail.latest_position.longitude, detail.latest_position.latitude],
@@ -410,38 +417,14 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
           _t: Date.now(),
         });
       }
-    } catch (e) {
-      console.error("Failed to load vessel detail:", e);
+    } catch {
+      if (selectionRevisionRef.current === revision) showToast("Could not load vessel details. Try again.", "error");
     }
-  }, [alerts, api]);
+  }, [alerts, api, showToast]);
 
-  const handleSelectAlert = useCallback(async (alert: Alert) => {
-    setSelectedAlertId(alert.id);
-    setSatelliteOverlay(null);
-    setMapClickFocus(null);
-    try {
-      const detail = await api.getVesselDetail(alert.vessel_id);
-      setSelectedVessel(detail);
-      
-      // Ensure the vessel marker exists on the map even if it was excluded by the background limit
-      setVessels((prev) => {
-        if (!prev.some((v) => v.id === detail.id)) {
-          return [...prev, detail];
-        }
-        return prev;
-      });
-      // Fly to vessel position when clicking an alert
-      if (detail.latest_position) {
-        setMapTarget({
-          center: [detail.latest_position.longitude, detail.latest_position.latitude],
-          zoom: 14,
-          _t: Date.now(),
-        });
-      }
-    } catch (e) {
-      console.error("Failed to load vessel detail:", e);
-    }
-  }, [api]);
+  const handleSelectAlert = useCallback((alert: Alert) => {
+    void handleSelectVessel(alert.vessel_id, alert.id);
+  }, [handleSelectVessel]);
 
   const handleLoadMoreAlerts = useCallback(async () => {
     try {
@@ -455,6 +438,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   }, [activeRegion, alerts.length, api, alertStatusFilter, isDemo, viewport]);
 
   const handleCloseDetail = useCallback(() => {
+    selectionRevisionRef.current += 1;
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setDetailClosing(true);
     closeTimerRef.current = setTimeout(() => {
@@ -500,6 +484,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         return;
       }
       if (analyticsCloseTimerRef.current) { clearTimeout(analyticsCloseTimerRef.current); analyticsCloseTimerRef.current = null; setAnalyticsClosing(false); }
+      selectionRevisionRef.current += 1;
       // Close vessel detail panel if open
       if (selectedVessel) handleCloseDetail();
       setShowAnalytics(true);

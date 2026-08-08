@@ -32,7 +32,7 @@ function leadingReason(alert: Alert): string {
     (leading, current) => !leading || current.severity > leading.severity ? current : leading,
     undefined,
   );
-  if (!signal) return "Review vessel activity";
+  if (!signal) return "Activity alert";
   return SIGNAL_LABELS[signal.anomaly_type] ?? signal.anomaly_type.replace(/_/g, " ");
 }
 
@@ -50,25 +50,25 @@ export default function AlertPeeks({ alerts, onSelectAlert, selectedAlertId, pan
   const countLabel = active.length === 0 && (loading || !connectionOk) ? "—" : active.length;
 
   return (
-    <section aria-label="Alert queue" className={`absolute inset-x-0 bottom-[var(--map-alert-bottom)] z-20 max-h-[40dvh] flex-col overflow-hidden border-t border-[var(--workspace-border,#d2d7d6)] bg-[var(--workspace-surface,#fafaf7)] text-[var(--workspace-text,#203039)] lg:inset-x-auto lg:bottom-8 lg:left-0 lg:top-[245px] lg:w-[300px] lg:max-h-none lg:border-r ${panelOpen ? "hidden lg:flex" : "flex"}`}>
-      <div className="hidden min-h-12 shrink-0 items-center justify-between gap-3 px-5 lg:flex">
-        <h2 className="text-sm font-medium">Alerts</h2>
-        <span className="text-xs tabular-nums text-[var(--workspace-muted,#596970)]">{countLabel}</span>
+    <section aria-label="Alert queue" className={`absolute inset-x-0 bottom-[var(--map-alert-bottom)] z-20 max-h-[40dvh] flex-col overflow-hidden border-t border-[var(--workspace-border,#d2d7d6)] bg-[var(--workspace-surface,#fafaf7)] text-[var(--workspace-text,#203039)] lg:inset-x-auto lg:bottom-8 lg:left-0 lg:top-[var(--map-sidebar-header)] lg:w-[300px] lg:max-h-none lg:border-r ${panelOpen ? "hidden lg:flex" : "flex"}`}>
+      <div className="hidden min-h-14 shrink-0 items-center justify-between gap-3 px-5 lg:flex">
+        <h2 className="text-sm font-semibold">Alerts <span className="ml-2 font-normal tabular-nums text-[var(--workspace-muted)]">{countLabel}</span></h2>
+        <span className="text-xs text-[var(--workspace-muted)]" title="Risk score, out of 100">Risk / 100</span>
       </div>
       <button type="button" aria-label={loading ? "Loading alerts" : !connectionOk ? "Alerts unavailable" : `Alerts: ${active.length} to review`} aria-expanded={expanded} aria-controls="alert-queue" onClick={() => setMobileExpanded(!mobileExpanded)} className="flex min-h-12 w-full shrink-0 items-center justify-between gap-3 px-4 text-left text-sm font-medium hover:bg-[var(--workspace-hover,#eef0ec)] lg:hidden">
         <span className="flex items-center gap-2.5">Alerts <span className="font-normal tabular-nums text-[var(--workspace-muted,#596970)]">{countLabel}</span></span>
         <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={expanded ? "" : "rotate-180"}><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {expanded && (
-        <div id="alert-queue" className="min-h-0 overflow-y-auto border-t border-[var(--workspace-border,#d2d7d6)] lg:flex-1">
-          {active.length === 0 && <p className="px-4 py-4 text-sm text-[var(--workspace-muted,#596970)] lg:px-5">{loading ? "Loading alerts…" : !connectionOk ? "Alerts are unavailable while disconnected." : "No alerts in this area."}</p>}
+        <div id="alert-queue" className="alert-queue min-h-0 overflow-y-auto overscroll-contain px-2 pb-2 lg:flex-1">
+          {active.length === 0 && <p className="px-4 py-4 text-sm text-[var(--workspace-muted,#596970)]">{loading ? "Loading alerts…" : !connectionOk ? "Alerts unavailable." : "No alerts in view."}</p>}
           {active.map((alert) => (
-            <button key={alert.id} type="button" aria-label={`Review ${alert.vessel_name || "unknown vessel"}`} aria-pressed={selectedAlertId === alert.id} onClick={() => onSelectAlert(alert)} className={`block min-h-16 w-full border-b border-[var(--workspace-border,#d2d7d6)] px-4 py-3 text-left last:border-0 hover:bg-[var(--workspace-hover,#eef0ec)] lg:px-5 ${selectedAlertId === alert.id ? "bg-[var(--workspace-hover,#eef0ec)]" : ""}`}>
+            <button key={alert.id} type="button" aria-label={`Review ${alert.vessel_name || "unknown vessel"}`} aria-pressed={selectedAlertId === alert.id} onClick={() => onSelectAlert(alert)} className={`alert-row block min-h-16 w-full rounded-md px-3 py-3 text-left transition-colors hover:bg-[var(--workspace-hover)] ${selectedAlertId === alert.id ? "bg-[var(--workspace-selected)]" : ""}`}>
               <div className="flex items-center justify-between gap-3">
                 <span className="truncate text-sm font-medium">{alert.vessel_name || "Unknown vessel"}</span>
-                <span className="shrink-0 text-xs tabular-nums text-[var(--workspace-muted,#596970)]">Risk {Math.round(alert.risk_score)}/100</span>
+                <span aria-label={`Risk ${Math.round(alert.risk_score)} out of 100`} className="shrink-0 font-mono text-sm tabular-nums text-[var(--workspace-ink)]">{Math.round(alert.risk_score)}</span>
               </div>
-              <div className="mt-1 truncate text-xs leading-5 text-[var(--workspace-muted,#596970)]" title={leadingReason(alert)}>{leadingReason(alert)}</div>
+              <div className="mt-1 truncate text-[13px] leading-5 text-[var(--workspace-muted)]" title={leadingReason(alert)}>{leadingReason(alert)}</div>
             </button>
           ))}
         </div>
