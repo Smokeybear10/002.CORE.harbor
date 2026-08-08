@@ -32,7 +32,7 @@ def trimf(x: float, params: tuple[float, float, float]) -> float:
 def trapmf(x: float, params: tuple[float, float, float, float]) -> float:
     """Trapezoidal membership function. 1.0 in [b, c], 0 outside [a, d]."""
     a, b, c, d = params
-    if x <= a or x >= d:
+    if x < a or x > d:
         return 0.0
     elif x <= b:
         return (x - a) / (b - a) if b != a else 1.0

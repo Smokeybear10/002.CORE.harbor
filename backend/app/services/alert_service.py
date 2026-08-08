@@ -249,9 +249,20 @@ def generate_alerts_for_all_vessels(
 
         alerts_created.append(alert)
 
-    # Prune risk history older than 24 hours to prevent unbounded growth
+    # Keep the last assessment even when a vessel leaves the observed area.
+    db.flush()
     cutoff = datetime.utcnow() - timedelta(hours=24)
-    db.query(RiskHistoryORM).filter(RiskHistoryORM.timestamp < cutoff).delete()
+    ranked_risks = select(
+        RiskHistoryORM.id,
+        func.row_number().over(
+            partition_by=RiskHistoryORM.vessel_id,
+            order_by=(RiskHistoryORM.timestamp.desc(), RiskHistoryORM.id.desc()),
+        ).label("rank"),
+    ).subquery()
+    db.query(RiskHistoryORM).filter(
+        RiskHistoryORM.timestamp < cutoff,
+        RiskHistoryORM.id.in_(select(ranked_risks.c.id).where(ranked_risks.c.rank > 1)),
+    ).delete(synchronize_session=False)
 
     db.commit()
     return alerts_created

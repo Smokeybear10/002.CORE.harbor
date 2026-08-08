@@ -170,6 +170,42 @@ def test_alert_scan_bounds_saved_history(storage_engine, monkeypatch):
         assert len(scanned) == 3
 
 
+def test_risk_retention_keeps_last_assessment_outside_current_coverage(storage_engine, monkeypatch):
+    engine, _ = storage_engine
+    now = datetime.utcnow()
+    monkeypatch.setattr(alert_service, "refresh_baseline", lambda db: None)
+    with Session(engine, autoflush=False) as db:
+        for vessel_id in ("ais-old", "ais-recent", "ais-tied", "ais-pending"):
+            add_vessel(db, vessel_id)
+        samples = [
+            (1, "ais-old", 72, 90),
+            (2, "ais-old", 48, 10),
+            (3, "ais-recent", 48, 70),
+            (4, "ais-recent", 12, 20),
+            (5, "ais-recent", 1, 5),
+            (6, "ais-tied", 48, 80),
+            (7, "ais-tied", 48, 0),
+            (8, "ais-pending", 48, 80),
+        ]
+        db.add_all([
+            RiskHistoryORM(
+                id=history_id, vessel_id=vessel_id, timestamp=now - timedelta(hours=hours),
+                risk_score=score, recommended_action="monitor" if score >= 35 else "ignore",
+            )
+            for history_id, vessel_id, hours, score in samples
+        ])
+        db.commit()
+        db.add(RiskHistoryORM(
+            id=9, vessel_id="ais-pending", timestamp=now,
+            risk_score=0, recommended_action="ignore",
+        ))
+
+        alert_service.generate_alerts_for_all_vessels(db, coverage_windows=[])
+
+        remaining = {row.id: row.risk_score for row in db.query(RiskHistoryORM).all()}
+        assert remaining == {2: 10, 4: 20, 5: 5, 7: 0, 9: 0}
+
+
 def test_postgres_engine_uses_bounded_pool_and_keeps_tls(monkeypatch):
     captured = {}
 
