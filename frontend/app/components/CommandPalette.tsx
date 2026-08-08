@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { Alert, Vessel, Region } from "@/app/lib/api";
-import { riskTextClass } from "@/app/lib/risk";
 
-interface CommandPaletteProps {
+type CommandPaletteProps = {
   open: boolean;
   onClose: () => void;
   alerts: Alert[];
@@ -15,13 +14,24 @@ interface CommandPaletteProps {
   onSelectVessel: (id: string) => void;
   onSelectRegion: (key: string | null) => void;
   onToggleAnalytics: () => void;
-}
+};
 
 type Result =
-  | { kind: "region"; key: string | null; label: string; badge?: string }
+  | { kind: "region"; key: string; label: string }
   | { kind: "alert"; alert: Alert }
   | { kind: "vessel"; vessel: Vessel }
-  | { kind: "action"; label: string; run: () => void; shortcut?: string };
+  | { kind: "action"; label: string; run: () => void };
+
+function resultGroup(result: Result): string {
+  return result.kind === "region" ? "Locations" : result.kind === "action" ? "Tools" : "Vessels";
+}
+
+function resultKey(result: Result): string {
+  if (result.kind === "region") return `region:${result.key}`;
+  if (result.kind === "alert") return `alert:${result.alert.id}`;
+  if (result.kind === "vessel") return `vessel:${result.vessel.id}`;
+  return `action:${result.label}`;
+}
 
 export default function CommandPalette({
   open, onClose, alerts, vessels, regions, activeRegion, onSelectAlert, onSelectVessel, onSelectRegion, onToggleAnalytics,
@@ -29,224 +39,185 @@ export default function CommandPalette({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const keyboardNavigation = useRef(false);
+
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement;
+    keyboardNavigation.current = true;
     inputRef.current?.focus();
+    inputRef.current?.select();
     return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, [open]);
 
   const results = useMemo<Result[]>(() => {
     const q = query.trim().toLowerCase();
-    const out: Result[] = [];
+    const matches = (text: string | null) => (text ?? "").toLowerCase().includes(q);
+    const seenVessels = new Set<string>();
+    const vesselResults: Result[] = [];
 
-    // Actions
+    for (const vessel of vessels) {
+      if (q && !matches(vessel.name) && !matches(vessel.mmsi)) continue;
+      if (seenVessels.has(vessel.id)) continue;
+      seenVessels.add(vessel.id);
+      vesselResults.push({ kind: "vessel", vessel });
+    }
+    for (const alert of alerts) {
+      if (seenVessels.has(alert.vessel_id)) continue;
+      if (q && !matches(alert.vessel_name) && !matches(alert.vessel_mmsi)
+        && !alert.anomaly_signals.some((signal) => matches(signal.anomaly_type.replace(/_/g, " ")))) continue;
+      seenVessels.add(alert.vessel_id);
+      vesselResults.push({ kind: "alert", alert });
+    }
+
+    const locations: Result[] = Object.entries(regions)
+      .filter(([key, region]) => key !== activeRegion && (!q || matches(region.name)))
+      .map(([key, region]) => ({ kind: "region", key, label: region.name }));
     const actions: Array<Extract<Result, { kind: "action" }>> = [
-      { kind: "action", label: "Toggle analytics", run: onToggleAnalytics, shortcut: "A" },
+      { kind: "action", label: "Analytics", run: onToggleAnalytics },
     ];
     if (Object.keys(regions).length > 1) {
-      actions.push({ kind: "action", label: "Open world map", run: () => onSelectRegion(null) });
+      actions.push({ kind: "action", label: "World map", run: () => onSelectRegion(null) });
     }
-    for (const a of actions) {
-      if (!q || a.label.toLowerCase().includes(q)) out.push(a);
-    }
-
-    // Regions
-    const regionEntries: Array<Extract<Result, { kind: "region" }>> = [
-      ...Object.keys(regions).map((key) => ({ kind: "region" as const, key, label: regions[key].name })),
+    return [
+      ...vesselResults.slice(0, q ? 24 : 5),
+      ...locations,
+      ...actions.filter((action) => !q || matches(action.label)),
     ];
-    for (const r of regionEntries) {
-      if (r.key === activeRegion) continue;
-      if (!q || r.label.toLowerCase().includes(q)) out.push(r);
-    }
-
-    // Alerts
-    for (const a of alerts) {
-      const name = (a.vessel_name || "").toLowerCase();
-      const mmsi = (a.vessel_mmsi || "").toLowerCase();
-      const signalsMatch = a.anomaly_signals.some((s) => s.anomaly_type.replace(/_/g, " ").toLowerCase().includes(q));
-      if (!q || name.includes(q) || mmsi.includes(q) || signalsMatch || a.recommended_action.toLowerCase().includes(q)) {
-        out.push({ kind: "alert", alert: a });
-      }
-      if (out.length > 40) break;
-    }
-
-    // Vessels (only when query exists, to avoid overwhelming)
-    if (q && out.length < 30) {
-      for (const v of vessels) {
-        const name = (v.name || "").toLowerCase();
-        const mmsi = (v.mmsi || "").toLowerCase();
-        if (name.includes(q) || mmsi.includes(q)) {
-          out.push({ kind: "vessel", vessel: v });
-        }
-        if (out.length > 40) break;
-      }
-    }
-
-    return out.slice(0, 40);
   }, [query, alerts, vessels, regions, activeRegion, onSelectRegion, onToggleAnalytics]);
 
   const selectedIndex = Math.min(selected, Math.max(0, results.length - 1));
 
-  function runResult(r: Result | undefined) {
-    if (!r) return;
-    if (r.kind === "region") onSelectRegion(r.key);
-    if (r.kind === "alert") onSelectAlert(r.alert);
-    if (r.kind === "vessel") onSelectVessel(r.vessel.id);
-    if (r.kind === "action") r.run();
+  useEffect(() => {
+    if (!open || !keyboardNavigation.current) return;
+    listRef.current?.querySelector(`[data-result-index="${selectedIndex}"]`)?.scrollIntoView({ block: "nearest" });
+    keyboardNavigation.current = false;
+  }, [open, selectedIndex]);
+
+  function runResult(result: Result | undefined) {
+    if (!result) return;
+    if (result.kind === "region") onSelectRegion(result.key);
+    if (result.kind === "alert") onSelectAlert(result.alert);
+    if (result.kind === "vessel") onSelectVessel(result.vessel.id);
+    if (result.kind === "action") result.run();
     onClose();
   }
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Tab") {
-        const controls = panelRef.current?.querySelectorAll<HTMLElement>('input, button, [tabindex="0"]');
-        const first = controls?.[0];
-        const last = controls?.[controls.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
-        if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
-      }
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-      if (e.key === "ArrowDown") { e.preventDefault(); setSelected(Math.min(selectedIndex + 1, Math.max(0, results.length - 1))); }
-      if (e.key === "ArrowUp") { e.preventDefault(); setSelected(Math.max(selectedIndex - 1, 0)); }
-      if (e.key === "Enter") { e.preventDefault(); runResult(results[selectedIndex]); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  });
-
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[12vh] px-4" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-[#24393d]/20" />
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-[#203039]/20 px-3 py-4 sm:px-6 sm:pt-[12dvh]" onMouseDown={onClose}>
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Search vessels and commands"
-        className="relative w-full max-w-[640px] overflow-hidden border border-[var(--workspace-border)] bg-[var(--workspace-surface)]"
-        onMouseDown={(e) => e.stopPropagation()}
+        aria-labelledby="map-search-title"
+        className="workspace-search relative flex max-h-[calc(100dvh-32px)] w-full max-w-[560px] flex-col overflow-hidden rounded-lg border border-[var(--workspace-border)] bg-[var(--workspace-surface)] text-[var(--workspace-ink)] shadow-[0_16px_56px_rgba(20,35,40,0.16)] sm:max-h-[76dvh]"
+        onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }
+          if (event.key !== "Tab") return;
+          const controls = panelRef.current?.querySelectorAll<HTMLElement>('input, button:not([tabindex="-1"])');
+          const first = controls?.[0];
+          const last = controls?.[controls.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }}
       >
-        <div className="flex items-center gap-3 px-4 h-12 border-b border-[var(--workspace-border)]">
-          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-slate-500">
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            ref={inputRef}
-            type="text"
-            aria-label="Search vessels and commands"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setSelected(0); }}
-            placeholder="Search by vessel name or MMSI…"
-            className="min-w-0 flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder-slate-400"
-          />
-          <kbd className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] text-slate-400">esc</kbd>
+        <div className="flex shrink-0 items-center justify-between gap-4 px-5 pt-2">
+          <label id="map-search-title" htmlFor="map-search-input" className="text-sm font-medium">Search</label>
+          <button type="button" onClick={onClose} className="-mr-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded text-sm text-[var(--workspace-muted)] transition-colors hover:bg-[var(--workspace-subtle)] hover:text-[var(--workspace-ink)]" aria-label="Close search">
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="m6 6 12 12m0-12L6 18" /></svg>
+          </button>
         </div>
-
-        <div className="max-h-[min(440px,60vh)] overflow-y-auto p-1.5">
-          {results.length === 0 && (
-            <div className="px-4 py-10 text-center text-[13px] text-slate-500">No matches for “{query}”</div>
-          )}
-          {results.map((r, i) => (
-            <ResultRow key={rowKey(r, i)} result={r} selected={i === selectedIndex} onHover={() => setSelected(i)} onRun={() => runResult(r)} />
+        <div className="shrink-0 border-b border-[var(--workspace-border)] px-5 pb-4">
+          <input
+            id="map-search-input"
+            ref={inputRef}
+            type="search"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="true"
+            aria-controls="map-search-results"
+            aria-activedescendant={results.length ? `map-search-result-${selectedIndex}` : undefined}
+            value={query}
+            autoComplete="off"
+            onChange={(event) => { setQuery(event.target.value); setSelected(0); listRef.current?.scrollTo({ top: 0 }); }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                event.stopPropagation();
+                keyboardNavigation.current = true;
+                setSelected(Math.max(0, Math.min(selectedIndex + (event.key === "ArrowDown" ? 1 : -1), results.length - 1)));
+              }
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.stopPropagation();
+                runResult(results[selectedIndex]);
+              }
+            }}
+            placeholder="Vessel name, MMSI or location"
+            className="min-h-11 w-full rounded border border-[var(--workspace-border)] bg-[var(--workspace-subtle)] px-3 text-base outline-none placeholder:text-[var(--workspace-muted)] focus:border-[var(--workspace-ink)]"
+          />
+        </div>
+        <div ref={listRef} id="map-search-results" role="listbox" aria-label="Search results" className="min-h-0 overflow-y-auto overscroll-contain py-2">
+          {results.length === 0 && <p className="px-5 py-8 text-sm text-[var(--workspace-muted)]">No matches in the loaded vessels or locations.</p>}
+          {results.map((result, index) => (
+            <div key={resultKey(result)} role="presentation">
+              {(index === 0 || resultGroup(result) !== resultGroup(results[index - 1])) && (
+                <div role="presentation" className="px-5 pb-1 pt-3 text-xs font-medium text-[var(--workspace-muted)]">{resultGroup(result)}</div>
+              )}
+              <ResultRow result={result} index={index} selected={index === selectedIndex} onHover={() => setSelected(index)} onRun={() => runResult(result)} />
+            </div>
           ))}
         </div>
-
-        <div className="flex items-center justify-between px-4 h-9 border-t border-[var(--workspace-border)] bg-[var(--workspace-subtle)] text-xs text-slate-500">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5"><Kbd>↑</Kbd><Kbd>↓</Kbd>navigate</span>
-            <span className="flex items-center gap-1.5"><Kbd>↵</Kbd>select</span>
-          </div>
-          <span className="font-mono">{results.length} results</span>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--workspace-border)] px-5 py-3 text-xs text-[var(--workspace-muted)]">
+          <span>Vessel results are limited to this map view.</span>
+          <span className="hidden shrink-0 sm:inline" aria-hidden="true">↑ ↓ to move · Enter to open</span>
         </div>
       </div>
     </div>
   );
 }
 
-function rowKey(r: Result, i: number): string {
-  if (r.kind === "region") return `region:${r.key ?? "global"}`;
-  if (r.kind === "alert") return `alert:${r.alert.id}`;
-  if (r.kind === "vessel") return `vessel:${r.vessel.id}`;
-  return `action:${r.label}:${i}`;
-}
+function ResultRow({ result, index, selected, onHover, onRun }: {
+  result: Result;
+  index: number;
+  selected: boolean;
+  onHover: () => void;
+  onRun: () => void;
+}) {
+  const vessel = result.kind === "vessel" ? result.vessel : null;
+  const alert = result.kind === "alert" ? result.alert : null;
+  const name = vessel?.name || alert?.vessel_name || (result.kind === "region" || result.kind === "action" ? result.label : "Unknown vessel");
+  const mmsi = vessel?.mmsi ?? alert?.vessel_mmsi;
 
-function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] text-slate-400">{children}</kbd>;
-}
-
-function ResultRow({ result, selected, onHover, onRun }: { result: Result; selected: boolean; onHover: () => void; onRun: () => void }) {
-  const base = `w-full min-h-11 flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-    selected ? "bg-[var(--workspace-subtle)]" : "hover:bg-[var(--workspace-subtle)]"
-  }`;
-
-  if (result.kind === "region") {
-    return (
-      <button className={base} onMouseEnter={onHover} onClick={onRun}>
-        <Kind icon="region" />
-        <span className="flex-1 text-[13px] text-slate-100">{result.label}</span>
-        <span className="font-mono text-xs text-slate-500">region</span>
-      </button>
-    );
-  }
-
-  if (result.kind === "alert") {
-    const tierColor = riskTextClass(result.alert.risk_score);
-    return (
-      <button className={base} onMouseEnter={onHover} onClick={onRun}>
-        <Kind icon="alert" />
-        <div className="flex-1 min-w-0">
-          <div className="text-[13px] text-slate-100 truncate">{result.alert.vessel_name || "Unknown"}</div>
-          <div className="font-mono text-xs text-slate-500 tabular-nums">MMSI {result.alert.vessel_mmsi || "—"}</div>
-        </div>
-        <span className={`font-mono text-xs font-semibold tabular-nums ${tierColor}`}>
-          {Math.round(result.alert.risk_score)}
-        </span>
-      </button>
-    );
-  }
-
-  if (result.kind === "vessel") {
-    return (
-      <button className={base} onMouseEnter={onHover} onClick={onRun}>
-        <Kind icon="vessel" />
-        <div className="flex-1 min-w-0">
-          <div className="text-[13px] text-slate-100 truncate">{result.vessel.name || "Unknown"}</div>
-          <div className="font-mono text-xs text-slate-500 tabular-nums">MMSI {result.vessel.mmsi}</div>
-        </div>
-        <span className="font-mono text-xs text-slate-500">{result.vessel.vessel_type || "vessel"}</span>
-      </button>
-    );
-  }
-
-  // action
   return (
-    <button className={base} onMouseEnter={onHover} onClick={onRun}>
-      <Kind icon="action" />
-      <span className="flex-1 text-[13px] text-slate-100">{result.label}</span>
-      {result.shortcut && <Kbd>{result.shortcut}</Kbd>}
+    <button
+      type="button"
+      id={`map-search-result-${index}`}
+      data-result-index={index}
+      role="option"
+      aria-selected={selected}
+      tabIndex={-1}
+      onMouseEnter={onHover}
+      onClick={onRun}
+      className={`flex min-h-11 w-full items-center justify-between gap-4 px-5 py-2.5 text-left transition-colors ${selected ? "bg-[var(--workspace-subtle)]" : "hover:bg-[var(--workspace-subtle)]"}`}
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-sm">{name}</span>
+        {mmsi && <span className="mt-0.5 block text-xs tabular-nums text-[var(--workspace-muted)]">{mmsi}</span>}
+      </span>
+      {vessel?.vessel_type && <span className="max-w-[35%] shrink-0 truncate text-xs text-[var(--workspace-muted)]">{vessel.vessel_type}</span>}
+      {alert && <span className="shrink-0 text-xs text-[var(--workspace-muted)]">Alert</span>}
+      {selected && !vessel && !alert && <span aria-hidden="true" className="text-[var(--workspace-muted)]">↵</span>}
     </button>
-  );
-}
-
-function Kind({ icon }: { icon: "region" | "alert" | "vessel" | "action" }) {
-  const paths: Record<string, React.ReactNode> = {
-    region: (<><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></>),
-    alert: (<><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>),
-    vessel: (<><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /></>),
-    action: (<><circle cx="12" cy="12" r="9" /><polyline points="10 8 14 12 10 16" /></>),
-  };
-  return (
-    <div className="w-7 h-7 flex items-center justify-center shrink-0">
-      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
-        {paths[icon]}
-      </svg>
-    </div>
   );
 }

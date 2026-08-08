@@ -95,6 +95,7 @@ export interface Vessel {
   destination: string | null;
   latest_position: Position | null;
   risk_score: number | null;
+  risk_assessed_at?: string | null;
   recommended_action: string | null;
   is_inactive?: boolean;
   is_resolved?: boolean;
@@ -321,6 +322,7 @@ export interface RiskTier {
 export interface RiskDistribution {
   histogram: RiskHistogramBin[];
   tiers: RiskTier[];
+  unassessed_count?: number;
 }
 
 export interface DetectionMetrics {
@@ -345,8 +347,9 @@ export interface TimePositionEntry {
   course_over_ground: number | null;
   heading: number | null;
   timestamp: string;
-  risk_score: number;
-  recommended_action: string;
+  risk_score: number | null;
+  risk_assessed_at?: string | null;
+  recommended_action: string | null;
 }
 
 export interface SatelliteSearchParams {

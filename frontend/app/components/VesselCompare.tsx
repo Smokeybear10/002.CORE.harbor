@@ -1,36 +1,29 @@
 "use client";
 
 import type { VesselDetail } from "@/app/lib/api";
-import { riskTextClass, riskBgClass } from "@/app/lib/risk";
+import { useDataSource } from "@/app/lib/data-source";
+import { formatAssessmentTime, riskTextClass, riskLabel } from "@/app/lib/risk";
 
-interface VesselCompareProps {
+type VesselCompareProps = {
   vessels: VesselDetail[];
   onRemove: (vesselId: string) => void;
   onClear: () => void;
-}
+};
 
-function riskColor(score: number | null): string {
-  if (score === null) return "text-slate-400";
-  return riskTextClass(score);
-}
-
-function riskBg(score: number | null): string {
-  if (score === null) return "bg-slate-500/10";
-  return riskBgClass(score);
-}
-
-function actionStyle(action: string | null) {
-  switch (action) {
-    case "escalate":
-      return "bg-red-500/10 text-red-400 border-red-500/25";
-    case "verify":
-      return "bg-orange-500/10 text-orange-400 border-orange-500/25";
-    case "monitor":
-      return "bg-yellow-500/10 text-yellow-400 border-yellow-500/25";
-    default:
-      return "bg-slate-500/10 text-slate-400 border-slate-500/25";
-  }
-}
+const SIGNAL_LABELS: Record<string, string> = {
+  ais_gap: "AIS reporting gap",
+  kinematic_implausibility: "Position inconsistency",
+  geofence_breach: "Restricted area entry",
+  type_mismatch: "Identity mismatch",
+  collision_risk: "Collision risk",
+  loitering: "Loitering",
+  speed_anomaly: "Unusual speed",
+  heading_anomaly: "Unusual course",
+  route_deviation: "Route deviation",
+  zone_lingering: "Extended time in zone",
+  statistical_outlier: "Unusual regional activity",
+  dark_ship_optical: "Optical detection without AIS",
+};
 
 function regionFromPosition(vessel: VesselDetail): string {
   if (!vessel.latest_position) return "Unknown";
@@ -43,117 +36,45 @@ function regionFromPosition(vessel: VesselDetail): string {
 }
 
 export default function VesselCompare({ vessels, onRemove, onClear }: VesselCompareProps) {
+  const { isDemo } = useDataSource();
   if (vessels.length === 0) return null;
 
   return (
-    <div className="bg-[#0d1320]/95 backdrop-blur-md border-t border-[#1a2235] px-4 py-3" style={{ minHeight: "140px", maxHeight: "240px" }}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-blue-400">
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-          </svg>
-          <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-            Vessel Comparison
-          </span>
-          <span className="text-[10px] font-mono text-slate-500 bg-[#111827] px-2 py-0.5 rounded-md">
-            {vessels.length}/3
-          </span>
-        </div>
-        <button
-          onClick={onClear}
-          className="text-[10px] font-medium text-slate-400 hover:text-slate-200 bg-[#111827] hover:bg-[#1a2235] px-3 py-1.5 rounded-md border border-[#1a2235] hover:border-slate-600 transition-all"
-        >
-          Clear All
-        </button>
+    <section aria-label="Compare vessels" className="max-h-[45dvh] overflow-auto border-t border-[var(--workspace-border,#d2d7d6)] bg-[var(--workspace-surface,#fafaf7)] text-[var(--workspace-ink,#203039)]">
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--workspace-border,#d2d7d6)] px-4">
+        <h2 className="text-sm font-medium">Compare vessels <span className="ml-2 font-normal text-[var(--workspace-muted,#596970)]">{vessels.length} / 3</span></h2>
+        <button type="button" onClick={onClear} className="min-h-11 px-2 text-xs text-[var(--workspace-muted,#596970)] hover:bg-[var(--workspace-subtle,#eef0ec)] hover:text-[var(--workspace-ink,#203039)]">Clear selection</button>
       </div>
-
-      <div className="flex gap-3 flex-1 min-h-0">
+      <div className="flex divide-x divide-[var(--workspace-border,#d2d7d6)]">
         {vessels.map((vessel) => {
           const speed = vessel.latest_position?.speed_over_ground;
           const heading = vessel.latest_position?.heading ?? vessel.latest_position?.course_over_ground;
           const topSignals = vessel.anomaly_signals.slice(0, 3);
-          const region = regionFromPosition(vessel);
+          const assessedAt = formatAssessmentTime(vessel.risk_assessed_at);
 
           return (
-            <div
-              key={vessel.id}
-              className="flex-1 bg-[#111827] rounded-lg border border-[#1a2235] p-4 relative overflow-hidden"
-            >
-              {/* Remove button */}
-              <button
-                onClick={() => onRemove(vessel.id)}
-                className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-[#1a2235] transition-colors"
-              >
-                <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-
-              <div className="flex items-start gap-3 mb-2">
-                {/* Risk score */}
-                <div className={`w-12 h-12 rounded-lg ${riskBg(vessel.risk_score)} flex items-center justify-center shrink-0`}>
-                  <span className={`text-2xl font-bold font-mono ${riskColor(vessel.risk_score)}`}>
-                    {vessel.risk_score !== null ? Math.round(vessel.risk_score) : "--"}
-                  </span>
+            <article key={vessel.id} className="min-w-[240px] flex-1 px-4 pb-4">
+              <div className="flex min-h-14 items-center justify-between gap-2">
+                <div className="min-w-0 py-2">
+                  <h3 className="truncate text-sm font-medium">{vessel.name || "Unknown vessel"}</h3>
+                  <div className="font-mono text-xs text-[var(--workspace-muted,#596970)]">{vessel.mmsi}</div>
                 </div>
-
-                {/* Name and MMSI */}
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium text-slate-200 truncate pr-4">
-                    {vessel.name || "Unknown Vessel"}
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-mono">{vessel.mmsi}</p>
-                  {vessel.recommended_action && (
-                    <span className={`inline-flex items-center text-[9px] font-semibold uppercase px-2 py-0.5 rounded-md border mt-1 ${actionStyle(vessel.recommended_action)}`}>
-                      {vessel.recommended_action}
-                    </span>
-                  )}
-                </div>
+                <button type="button" onClick={() => onRemove(vessel.id)} aria-label={`Remove ${vessel.name || vessel.mmsi} from comparison`} className="flex h-11 w-11 shrink-0 items-center justify-center text-[var(--workspace-muted,#596970)] hover:bg-[var(--workspace-subtle,#eef0ec)]">
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                </button>
               </div>
-
-              {/* Stats row */}
-              <div className="flex items-center gap-3 mb-2 text-[10px]">
-                <span className="text-slate-500">
-                  SPD <span className="text-slate-300 font-mono">{speed !== null && speed !== undefined ? `${speed.toFixed(1)} kn` : "--"}</span>
-                </span>
-                <span className="text-slate-500">
-                  HDG <span className="text-slate-300 font-mono">{heading !== null && heading !== undefined ? `${Math.round(heading)}°` : "--"}</span>
-                </span>
-                <span className="text-slate-500">
-                  RGN <span className="text-slate-300">{region}</span>
-                </span>
-              </div>
-
-              {/* Top anomaly signals */}
-              {topSignals.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {topSignals.map((signal, i) => (
-                    <span
-                      key={i}
-                      className="text-[9px] text-slate-400 bg-[#0d1320] px-1.5 py-0.5 rounded border border-[#1a2235]"
-                    >
-                      {({"ais_gap":"AIS dark period","kinematic_implausibility":"position spoofing","geofence_breach":"restricted zone breach","type_mismatch":"identity mismatch","collision_risk":"COLREGS non-compliance","loitering":"loitering","speed_anomaly":"speed anomaly","heading_anomaly":"course anomaly","route_deviation":"route deviation","zone_lingering":"zone lingering","statistical_outlier":"regional outlier","dark_ship_optical":"dark ship (optical)"} as Record<string,string>)[signal.anomaly_type] ?? signal.anomaly_type.replace(/_/g, " ")}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+              <dl className="space-y-2 text-xs">
+                <div className="flex items-baseline justify-between gap-3"><dt className="text-[var(--workspace-muted,#596970)]">Risk</dt><dd className={riskTextClass(vessel.risk_score)}>{vessel.risk_score === null ? "Not assessed" : <><span className="font-mono">{Math.round(vessel.risk_score)} / 100</span><span className="ml-2">{riskLabel(vessel.risk_score)}</span></>}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-[var(--workspace-muted,#596970)]">Speed</dt><dd className="font-mono">{speed != null ? `${speed.toFixed(1)} kn` : "—"}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-[var(--workspace-muted,#596970)]">Heading</dt><dd className="font-mono">{heading != null ? `${Math.round(heading)}°` : "—"}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-[var(--workspace-muted,#596970)]">Area</dt><dd>{regionFromPosition(vessel)}</dd></div>
+              </dl>
+              {vessel.risk_score !== null && <div className="mt-3 text-xs leading-5 text-[var(--workspace-muted,#596970)]">{isDemo ? "Demo assessment" : assessedAt ? `Assessed ${assessedAt}` : "Assessment time unknown"}</div>}
+              {topSignals.length > 0 && <ul className="mt-3 space-y-1 border-t border-[var(--workspace-border,#d2d7d6)] pt-3 text-xs text-[var(--workspace-muted,#596970)]">{topSignals.map((signal, index) => <li key={`${signal.anomaly_type}-${index}`}>{SIGNAL_LABELS[signal.anomaly_type] ?? signal.anomaly_type.replaceAll("_", " ")}</li>)}</ul>}
+            </article>
           );
         })}
-
-        {/* Empty slots */}
-        {Array.from({ length: 3 - vessels.length }).map((_, i) => (
-          <div
-            key={`empty-${i}`}
-            className="flex-1 bg-[#111827]/40 rounded-lg border border-dashed border-[#1a2235] flex items-center justify-center"
-          >
-            <span className="text-[10px] text-slate-600">Click &quot;Compare&quot; on an alert</span>
-          </div>
-        ))}
       </div>
-    </div>
+    </section>
   );
 }

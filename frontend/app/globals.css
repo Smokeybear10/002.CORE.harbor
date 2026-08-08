@@ -169,14 +169,16 @@ body > *:not(.ambient-glow) {
   color-scheme: light;
   background: var(--workspace-surface);
   color: var(--workspace-ink);
-  --workspace-surface: #fafaf7;
-  --workspace-subtle: #eef0ec;
-  --workspace-border: #d2d7d6;
-  --workspace-ink: #203039;
-  --workspace-muted: #596970;
+  --workspace-surface: #fcfcf9;
+  --workspace-subtle: #f0f2ef;
+  --workspace-selected: #e4eceb;
+  --workspace-border: #dce1de;
+  --workspace-ink: #253631;
+  --workspace-muted: #62706b;
   --workspace-text: var(--workspace-ink);
   --workspace-hover: var(--workspace-subtle);
   --map-panel-top: 124px;
+  --map-sidebar-header: 60px;
   --map-panel-bottom: 32px;
   --map-tools-bottom: 96px;
   --map-alert-bottom: 32px;
@@ -216,13 +218,54 @@ body > *:not(.ambient-glow) {
 .harbor-workspace .maplibregl-map { overflow: clip; }
 .harbor-workspace :focus-visible { outline: 2px solid #325e70; outline-offset: 2px; }
 .harbor-workspace ::-webkit-scrollbar-thumb { background: #bcc6c7; border-radius: 0; }
+.map-toolbar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 45;
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  grid-template-rows: 44px 44px;
+  gap: 8px 4px;
+  height: 112px;
+  padding: 8px 12px;
+  background: var(--workspace-surface);
+  border-bottom: 1px solid var(--workspace-border);
+}
+.map-toolbar-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.map-toolbar-region { grid-column: 1 / -1; grid-row: 2; background: var(--workspace-subtle); border-radius: 6px; }
+.map-toolbar-search { grid-column: 2; grid-row: 1; color: var(--workspace-muted); }
+.map-toolbar-analytics { grid-column: 3; grid-row: 1; }
+.map-toolbar-analytics svg { display: none; }
+.map-toolbar-help { grid-column: 4; grid-row: 1; }
+.map-live-switch { position: absolute; right: 12px; bottom: 8px; min-width: 80px; }
+.harbor-workspace[data-demo="true"] .map-toolbar-region { margin-right: 88px; }
+.workspace-menu { box-shadow: 0 6px 24px #20303912; animation: workspace-enter 140ms ease-out; }
+.workspace-search { animation: workspace-enter 160ms ease-out; }
+.alert-row[aria-pressed="true"] { background: var(--workspace-selected); }
+.alert-queue { scrollbar-gutter: stable; }
+@keyframes workspace-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .harbor-workspace[data-demo="true"] {
   --map-panel-bottom: calc(var(--playback-bottom) + 82px);
   --map-tools-bottom: calc(var(--playback-bottom) + 142px);
   --map-alert-bottom: calc(var(--playback-bottom) + 82px);
 }
+@media (min-width: 640px) {
+  .harbor-workspace { --map-panel-top: 72px; }
+  .map-toolbar { display: flex; align-items: center; height: 60px; gap: 8px; padding: 8px 16px; }
+  .map-toolbar-title { padding-right: 12px; }
+  .map-toolbar-region { flex: 0 1 220px; background: transparent; border-left: 1px solid var(--workspace-border); border-radius: 0; padding-left: 8px; }
+  .map-toolbar-search { margin-left: auto; }
+  .map-live-switch { position: static; min-width: auto; }
+  .harbor-workspace[data-demo="true"] .map-toolbar-region { margin-right: 0; }
+}
+@media (min-width: 768px) {
+  .map-toolbar-search { flex: 1; max-width: 320px; background: var(--workspace-subtle); }
+}
 @media (min-width: 1024px) {
-  .harbor-workspace { --map-panel-top: 16px; --map-tools-bottom: 48px; }
+  .harbor-workspace { --map-tools-bottom: 48px; }
   .harbor-workspace::before {
     content: "";
     position: absolute;
@@ -253,10 +296,11 @@ body > *:not(.ambient-glow) {
   .workspace-panel { width: 400px; top: var(--map-panel-top); }
 }
 @media (min-width: 1024px) {
-  .workspace-panel { top: 0; bottom: 32px; }
+  .workspace-panel { top: 60px; bottom: 32px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .workspace-panel { animation: none !important; }
+  .workspace-panel, .workspace-menu, .workspace-search { animation: none !important; }
+  .harbor-workspace *, .harbor-workspace *::before, .harbor-workspace *::after { transition-duration: 0.01ms !important; }
 }
 
 /* Map controls */
@@ -317,6 +361,16 @@ body > *:not(.ambient-glow) {
   background: rgba(255, 255, 255, 0.15);
 }
 
+html:has(.vessel-report), body:has(.vessel-report) {
+  color-scheme: light;
+  background: #fafaf7;
+}
+html:has(.vessel-report)::-webkit-scrollbar-thumb,
+html:has(.vessel-report) ::-webkit-scrollbar-thumb {
+  background: #bcc6c7;
+  border-radius: 0;
+}
+
 /* Animations */
 @keyframes pulse-glow {
   0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
@@ -329,13 +383,13 @@ body > *:not(.ambient-glow) {
 }
 
 @keyframes slide-in-right {
-  from { transform: translateX(100%); opacity: 0; }
+  from { transform: translateX(12px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
 
 @keyframes slide-out-right {
   from { transform: translateX(0); opacity: 1; }
-  to { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(12px); opacity: 0; }
 }
 
 @keyframes fade-in-up {

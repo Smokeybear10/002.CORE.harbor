@@ -3,12 +3,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import router
 from app.database import Base, get_db
-from app.models.domain import AlertAuditORM, AlertORM, PositionReportORM, VesselORM
+from app.models.domain import AlertAuditORM, AlertORM, PositionReportORM, RiskHistoryORM, VesselORM
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def history_client(tmp_path):
         app = FastAPI()
         app.include_router(router, prefix="/api")
         app.dependency_overrides[get_db] = lambda: db
-        db.add(VesselORM(id="saved", mmsi="123456789", name="Saved vessel"))
+        db.add(VesselORM(id="saved", mmsi="123456789", name="Saved vessel", vessel_type="cargo", flag_state="US"))
         db.commit()
         with TestClient(app) as client:
             yield client, db
@@ -72,7 +72,7 @@ def test_historical_alerts_notes_and_audit_survive_resolution(history_client):
     db.query(AlertORM).filter(AlertORM.status == "active").update({"status": "dismissed"})
     db.commit()
     resolved = client.get("/api/vessels/saved/report").json()
-    assert resolved["risk_assessment"]["score"] == 0
+    assert resolved["risk_assessment"]["score"] == 43
     assert len(resolved["alert_history"]) == 4
     assert any(alert["operator_notes"] == "Saved note active" for alert in resolved["alert_history"])
 
@@ -129,6 +129,179 @@ def test_missing_and_empty_history_are_explicit(history_client):
 def next_positions(report):
     cursor = report["history"]["next_position_cursor"]
     return {"position_before": cursor["timestamp"], "position_before_id": cursor["id"], "until": report["history"]["until"]}
+
+
+@pytest.mark.parametrize("score", [None, 0, 12.5, 42])
+def test_vessel_views_use_saved_assessments_without_active_alerts(history_client, score):
+    client, db = history_client
+    assessed_at = datetime(2026, 10, 31, 8)
+    action = "monitor" if score == 42 else "ignore"
+    if score is not None:
+        db.add(RiskHistoryORM(vessel_id="saved", risk_score=score, recommended_action=action, timestamp=assessed_at))
+        db.commit()
+    expected_time = assessed_at.replace(tzinfo=timezone.utc) if score is not None else None
+    for data in (client.get("/api/vessels").json()["items"][0], client.get("/api/vessels/saved").json()):
+        assert data["risk_score"] == score
+        assert data["recommended_action"] == (action if score is not None else None)
+        assert (datetime.fromisoformat(data["risk_assessed_at"]) if data["risk_assessed_at"] else None) == expected_time
+    report = client.get("/api/vessels/saved/report").json()["risk_assessment"]
+    assert report["score"] == score
+    assert report["recommended_action"] == (action if score is not None else None)
+    assert (datetime.fromisoformat(report["assessed_at"]) if report["assessed_at"] else None) == expected_time
+
+
+def test_latest_assessment_overrides_old_alert_and_uses_timestamp_then_id(history_client):
+    client, db = history_client
+    now = datetime(2026, 10, 31, 8)
+    db.add(AlertORM(
+        id="old-active", vessel_id="saved", risk_score=80, recommended_action="escalate",
+        created_at=now - timedelta(minutes=10), explanation="Old finding",
+        anomaly_signals_json='[{"anomaly_type":"ais_gap","severity":0.8,"description":"Old gap"}]',
+    ))
+    db.add_all([
+        RiskHistoryORM(vessel_id="saved", risk_score=20, recommended_action="ignore", timestamp=now),
+        RiskHistoryORM(vessel_id="saved", risk_score=12, recommended_action="ignore", timestamp=now),
+        RiskHistoryORM(vessel_id="saved", risk_score=70, recommended_action="verify", timestamp=now - timedelta(minutes=1)),
+    ])
+    db.commit()
+    listed = client.get("/api/vessels").json()["items"][0]
+    detail = client.get("/api/vessels/saved").json()
+    report = client.get("/api/vessels/saved/report").json()
+    for data in (listed, detail):
+        assert data["risk_score"] == 12
+        assert datetime.fromisoformat(data["risk_assessed_at"]) == now.replace(tzinfo=timezone.utc)
+    assert detail["explanation"] is None
+    assert detail["anomaly_signals"] == []
+    assert report["risk_assessment"]["score"] == 12
+    assert report["risk_assessment"]["explanation"] is None
+    assert report["anomaly_signals"] == []
+    assert report["alert_history"][0]["risk_score"] == 80
+
+
+def test_report_and_replay_use_assessments_at_the_requested_cutoff(history_client, monkeypatch):
+    client, db = history_client
+    now = datetime(2026, 10, 31, 8)
+    monkeypatch.setattr("app.data_sources.nws_adapter.get_weather", lambda *args: None)
+    db.add(PositionReportORM(vessel_id="saved", timestamp=now, latitude=33.7, longitude=-118.2))
+    db.add_all([
+        RiskHistoryORM(vessel_id="saved", risk_score=12, recommended_action="ignore", timestamp=now),
+        RiskHistoryORM(vessel_id="saved", risk_score=70, recommended_action="verify", timestamp=now + timedelta(minutes=1)),
+    ])
+    db.commit()
+    cutoff = now.replace(tzinfo=timezone.utc).isoformat()
+    report = client.get("/api/vessels/saved/report", params={"until": cutoff}).json()["risk_assessment"]
+    assert report["score"] == 12
+    assert report["assessed_at"] == cutoff
+    replay = client.get("/api/vessels/positions/at-time", params={"timestamp": cutoff}).json()[0]
+    assert replay["risk_score"] == 12
+    assert replay["risk_assessed_at"] == cutoff
+    before = client.get("/api/vessels/saved/report", params={"until": (now - timedelta(seconds=1)).isoformat()}).json()
+    assert before["risk_assessment"]["score"] is None
+
+
+@pytest.mark.parametrize("status", ["active", "dismissed", "resolved"])
+def test_alert_only_assessment_keeps_score_without_inventing_assessment_time(history_client, status):
+    client, db = history_client
+    now = datetime(2026, 10, 31, 8)
+    db.add_all([
+        AlertORM(id="a", vessel_id="saved", risk_score=40, recommended_action="monitor", created_at=now, status=status),
+        AlertORM(id="b", vessel_id="saved", risk_score=52, recommended_action="monitor", created_at=now, status=status),
+    ])
+    db.commit()
+    for data in (client.get("/api/vessels").json()["items"][0], client.get("/api/vessels/saved").json()):
+        assert data["risk_score"] == 52
+        assert data["risk_assessed_at"] is None
+    report = client.get("/api/vessels/saved/report").json()["risk_assessment"]
+    assert report["score"] == 52
+    assert report["assessed_at"] is None
+    before = client.get("/api/vessels/saved/report", params={"until": (now - timedelta(seconds=1)).isoformat()}).json()
+    assert before["risk_assessment"]["score"] is None
+
+
+@pytest.mark.parametrize("has_snapshot", [False, True])
+def test_historical_views_do_not_reuse_mutable_alert_score_or_findings(history_client, has_snapshot):
+    client, db = history_client
+    now = datetime(2026, 10, 31, 8)
+    alert = AlertORM(
+        id="mutable", vessel_id="saved", risk_score=40, recommended_action="monitor",
+        created_at=now, explanation="Original finding",
+    )
+    db.add(alert)
+    db.add(PositionReportORM(vessel_id="saved", timestamp=now, latitude=33.7, longitude=-118.2))
+    if has_snapshot:
+        db.add(RiskHistoryORM(vessel_id="saved", risk_score=52, recommended_action="monitor", timestamp=now))
+    db.commit()
+    alert.risk_score = 52
+    alert.explanation = "Finding added after the report cutoff"
+    alert.anomaly_signals_json = '[{"anomaly_type":"ais_gap","severity":0.8,"description":"Later gap"}]'
+    db.commit()
+    cutoff = (now + timedelta(minutes=30)).replace(tzinfo=timezone.utc).isoformat()
+    report = client.get("/api/vessels/saved/report", params={"until": cutoff}).json()
+    assert report["risk_assessment"]["score"] == (52 if has_snapshot else None)
+    assert report["risk_assessment"]["explanation"] is None
+    assert report["anomaly_signals"] == []
+    replay = client.get("/api/vessels/positions/at-time", params={"timestamp": cutoff}).json()[0]
+    assert replay["risk_score"] == (52 if has_snapshot else None)
+    current = client.get("/api/vessels/saved/report").json()
+    assert current["risk_assessment"]["score"] == 52
+    assert current["risk_assessment"]["explanation"] == alert.explanation
+
+
+def test_vessel_list_fetches_assessments_in_batches(history_client):
+    client, db = history_client
+    now = datetime(2026, 10, 31, 8)
+    for index in range(500):
+        db.add(VesselORM(id=f"v{index}", mmsi=str(index), name=f"Vessel {index}", vessel_type="cargo", flag_state="US"))
+        db.add(RiskHistoryORM(vessel_id=f"v{index}", risk_score=index % 35, recommended_action="ignore", timestamp=now))
+    db.commit()
+    queries = []
+    def record_query(connection, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+    event.listen(db.bind, "before_cursor_execute", record_query)
+    try:
+        response = client.get("/api/vessels", params={"limit": 1000})
+    finally:
+        event.remove(db.bind, "before_cursor_execute", record_query)
+    assert response.status_code == 200
+    items = {item["id"]: item for item in response.json()["items"]}
+    assert len(items) == 501
+    assert items["saved"]["risk_score"] is None
+    assert all(items[f"v{index}"]["risk_score"] == index % 35 for index in range(500))
+    assert len(queries) <= 5
+
+
+def test_distribution_excludes_unassessed_vessels_and_uses_actual_scores(history_client):
+    client, db = history_client
+    now = datetime(2026, 10, 31, 8)
+    for name, score, action in (("zero", 0, "ignore"), ("low", 12, "ignore"), ("critical", 100, "escalate"), ("updated", 20, "ignore"), ("resolved", 60, "verify")):
+        db.add(VesselORM(id=name, mmsi=name, name=name, vessel_type="cargo", flag_state="US"))
+        if name != "resolved":
+            db.add(RiskHistoryORM(vessel_id=name, risk_score=score, recommended_action=action, timestamp=now))
+    db.add_all([
+        AlertORM(id="old", vessel_id="updated", risk_score=80, recommended_action="escalate", created_at=now - timedelta(minutes=1),
+                 anomaly_signals_json='[{"anomaly_type":"old_gap"}]'),
+        AlertORM(id="critical", vessel_id="critical", risk_score=100, recommended_action="escalate", created_at=now,
+                 anomaly_signals_json='[{"anomaly_type":"ais_gap"}]'),
+        AlertORM(id="resolved", vessel_id="resolved", risk_score=60, recommended_action="verify", created_at=now, status="resolved"),
+    ])
+    db.commit()
+    response = client.get("/api/analytics/distribution")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["unassessed_count"] == 1
+    bins = {entry["bin_start"]: entry for entry in data["histogram"]}
+    assert sum(entry["count_active"] for entry in bins.values()) == 5
+    assert bins[0]["count_active"] == 1
+    assert bins[10]["count_active"] == 1
+    assert bins[20]["count_active"] == 1
+    assert bins[95]["count_active"] == 1
+    assert bins[95]["bin_end"] == 100
+    assert bins[60]["count_active"] == 1
+    assert sum(entry["count_resolved"] for entry in bins.values()) == 0
+    tiers = {entry["action"]: entry for entry in data["tiers"]}
+    assert tiers["normal"]["count"] == 3
+    assert tiers["escalate"]["count"] == 1
+    assert tiers["escalate"]["top_signals"] == {"ais_gap": 1}
 
 
 def test_cursor_does_not_skip_a_position_when_latest_bucket_advances_past_cutoff(history_client):
