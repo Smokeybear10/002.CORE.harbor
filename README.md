@@ -1,4 +1,4 @@
-# HarborOS
+# Harbor
 
 **Live demo: [harbor.thomasou.com](https://harbor.thomasou.com)**
 
@@ -54,9 +54,9 @@ Zoom out to see every sector at once. Heatmap renders vessel density; individual
 
 Harbors and littoral zones are increasingly contested. Small, cheap threats — smuggling vessels, hostile reconnaissance, unauthorized intrusions — exploit gaps in maritime awareness. Legacy systems are expensive, siloed, and slow. Operators drown in raw AIS data with no triage, no scoring, and no clear path to action.
 
-## What HarborOS Does
+## What Harbor Does
 
-HarborOS turns raw vessel traffic data into operator decisions through a four-stage pipeline:
+Harbor turns raw vessel traffic data into operator decisions through a four-stage pipeline:
 
 1. **Detect** — 10 anomaly detectors scan vessel behavior for suspicious patterns
 2. **Assess** — A fuzzy logic engine combines signals into a composite risk score (0–100)
@@ -216,7 +216,7 @@ HarborOS/
 
 ## API Keys & External Services
 
-HarborOS ships runnable out of the box — seeded demo data, simulated satellite imagery, and a static scenario. To plug it into live data sources, set the following environment variables before starting the backend.
+Harbor ships runnable out of the box — seeded demo data, simulated satellite imagery, and a static scenario. To plug it into live data sources, set the following environment variables before starting the backend.
 
 | Variable | Purpose | Required? | Source |
 |----------|---------|-----------|--------|
@@ -273,7 +273,7 @@ set -a && source backend/.env && set +a
 ./start.sh
 ```
 
-Nothing here is required to run the demo — HarborOS is fully functional without any keys, it just operates on seeded data and simulated imagery.
+Nothing here is required to run the demo — Harbor is fully functional without any keys, it just operates on seeded data and simulated imagery.
 
 ## References
 
