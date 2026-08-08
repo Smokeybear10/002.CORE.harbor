@@ -1,6 +1,6 @@
 # HarborOS
 
-**Live demo: [h4bor.vercel.app](https://h4bor.vercel.app)**
+**Live demo: [harbor.thomasou.com](https://harbor.thomasou.com)**
 
 Live AIS follows the area you're viewing. Pan anywhere in the world and zoom into a coast or port to receive vessel reports. Coverage depends on AISStream's receivers. The free backend sleeps when idle and can take about a minute to reconnect; the browser-only demo remains available.
 
