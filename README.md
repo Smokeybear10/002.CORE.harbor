@@ -195,11 +195,12 @@ HarborOS/
 │   └── requirements.txt
 ├── frontend/
 │   └── app/
-│       ├── page.tsx               # Main dashboard
+│       ├── page.tsx               # Landing page
+│       ├── dashboard/page.tsx     # Main dashboard
 │       ├── report/page.tsx        # Incident report (printable)
 │       ├── components/
 │       │   ├── MapView.tsx        # MapLibre GL map + heatmap
-│       │   ├── AlertFeed.tsx      # Alert triage panel
+│       │   ├── AlertPeeks.tsx     # Alert cards
 │       │   ├── VesselDetail.tsx   # Vessel info + risk breakdown
 │       │   └── RiskDistribution.tsx   # Analytics panel
 │       └── lib/

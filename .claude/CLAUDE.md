@@ -47,13 +47,13 @@ backend/
 
 frontend/
   app/
-    page.tsx              # Main dashboard
+    page.tsx              # Landing page
+    dashboard/page.tsx    # Main dashboard
     components/
       MapView.tsx         # MapLibre GL map
-      AlertFeed.tsx       # Alert triage panel
+      AlertPeeks.tsx      # Alert cards
       VesselDetail.tsx    # Vessel info + risk score
-      VesselCompare.tsx   # Side-by-side comparison
-      DemoMode.tsx        # Demo walkthrough
+      FeatureTour.tsx     # Dashboard walkthrough
     lib/api.ts            # API client
 ```
 
