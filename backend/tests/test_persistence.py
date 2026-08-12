@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 import os
 from types import SimpleNamespace
@@ -306,13 +307,15 @@ def test_ingestion_retries_transient_failures_once_with_fresh_session(tmp_path, 
     monkeypatch.setattr(ingestion_service, "sleep", waits.append)
     service = ingestion_service.IngestionService(api_key="test")
     service._unmatched_static["123"] = {"mmsi": "123", "data": {"name": "Saved metadata"}}
-    service._flush_batch([{
+    service._pending_messages[("position", "123")] = {
         "type": "position", "mmsi": "123", "timestamp": datetime.utcnow(),
         "data": {"latitude": 50, "longitude": 0, "speed_over_ground": 12},
-    }])
+    }
+    asyncio.run(service._flush_pending())
     assert len(commits) == len(set(commits)) == attempts
     assert waits == ([0.5] if attempts == 2 else [])
     saved = failures < attempts
+    assert bool(service._pending_messages) == (not saved and error_type in (OperationalError, InterfaceError))
     with Session(engine) as db:
         assert db.query(PositionReportORM).count() == int(saved)
         if saved:
@@ -323,6 +326,69 @@ def test_ingestion_retries_transient_failures_once_with_fresh_session(tmp_path, 
     assert service._vessels_created == int(saved)
     assert service._vessels_updated == int(saved)
     engine.dispose()
+
+
+@pytest.mark.parametrize("error_type", [OperationalError, InterfaceError])
+def test_ingestion_keeps_pending_reports_until_database_recovers(tmp_path, monkeypatch, error_type):
+    engine = database.create_database_engine(f"sqlite:///{tmp_path / 'recovery.db'}")
+    database.Base.metadata.create_all(engine)
+    commits = []
+
+    class RecoveringSession(Session):
+        def commit(self):
+            commits.append(self)
+            if len(commits) <= 2:
+                self.flush()
+                raise error_type("COMMIT", {}, Exception("database temporarily unavailable"))
+            super().commit()
+
+    monkeypatch.setattr(ingestion_service, "SessionLocal", sessionmaker(bind=engine, class_=RecoveringSession, autoflush=False))
+    monkeypatch.setattr(ingestion_service, "sleep", lambda _: None)
+    service = ingestion_service.IngestionService(api_key="test")
+    service._pending_messages[("position", "123")] = {
+        "type": "position", "mmsi": "123", "timestamp": datetime(2026, 1, 1),
+        "data": {"latitude": 50, "longitude": 0, "speed_over_ground": 12},
+    }
+    service._running = True
+    ticks = 0
+
+    async def tick(_):
+        nonlocal ticks
+        ticks += 1
+        if ticks == 2:
+            service._running = False
+
+    monkeypatch.setattr(ingestion_service.asyncio, "sleep", tick)
+    asyncio.run(service._flush_loop())
+
+    with Session(engine) as db:
+        assert db.query(PositionReportORM).count() == 1
+    assert len(commits) == 3
+    assert service._positions_ingested == 1
+    assert service._pending_messages == {}
+    engine.dispose()
+
+
+def test_ingestion_flush_preserves_reports_received_during_commit(monkeypatch):
+    service = ingestion_service.IngestionService(api_key="test")
+    key = ("position", "123")
+    original = {"type": "position", "mmsi": "123", "timestamp": datetime(2026, 1, 1)}
+    newer = {**original, "timestamp": original["timestamp"] + timedelta(minutes=1)}
+    service._pending_messages[key] = original
+    service._running = True
+
+    async def tick(_):
+        service._running = False
+
+    async def commit(_, batch):
+        assert batch == [original]
+        service._pending_messages[key] = newer
+        return "saved"
+
+    monkeypatch.setattr(ingestion_service.asyncio, "sleep", tick)
+    monkeypatch.setattr(ingestion_service.asyncio, "to_thread", commit)
+    asyncio.run(service._flush_loop())
+    assert service._pending_messages == {key: newer}
 
 
 @pytest.mark.parametrize("url", ["not-a-url", "mysql://user:private@example.invalid/db"])

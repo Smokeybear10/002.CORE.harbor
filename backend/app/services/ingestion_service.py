@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from time import sleep
+from typing import Literal
 import uuid
 from datetime import datetime, timezone, timedelta
 
@@ -106,9 +107,7 @@ class IngestionService:
                 pass
             self._flush_task = None
         if self._pending_messages:
-            batch = list(self._pending_messages.values())
-            self._pending_messages.clear()
-            await asyncio.to_thread(self._flush_batch, batch)
+            await self._flush_pending()
 
         logger.info("Ingestion service stopped")
 
@@ -135,15 +134,24 @@ class IngestionService:
     async def _flush_loop(self) -> None:
         while self._running:
             await asyncio.sleep(2)
-            batch = list(self._pending_messages.values())
-            self._pending_messages.clear()
-            if batch:
-                await asyncio.to_thread(self._flush_batch, batch)
+            await self._flush_pending()
 
-    def _flush_batch(self, batch: list[dict]):
-        """Write a batch of AIS messages to the database."""
+    async def _flush_pending(self) -> None:
+        batch = list(self._pending_messages.values())
         if not batch:
             return
+        result = await asyncio.to_thread(self._flush_batch, batch)
+        if result == "retry":
+            return
+        for message in batch:
+            key = (message["type"], message["mmsi"])
+            if self._pending_messages.get(key) is message:
+                del self._pending_messages[key]
+
+    def _flush_batch(self, batch: list[dict]) -> Literal["saved", "retry", "rejected"]:
+        """Write a batch of AIS messages to the database."""
+        if not batch:
+            return "saved"
 
         counters_before = (self._vessels_created, self._vessels_updated, self._positions_ingested)
         seen_before = self._vessels_seen.copy()
@@ -153,15 +161,16 @@ class IngestionService:
             try:
                 self._write_batch(db, batch)
                 db.commit()
-                return
+                return "saved"
             except Exception as error:
                 db.rollback()
                 self._vessels_created, self._vessels_updated, self._positions_ingested = counters_before
                 self._vessels_seen = seen_before.copy()
                 self._unmatched_static = static_before.copy()
-                if attempt or not isinstance(error, (OperationalError, InterfaceError)):
+                transient = isinstance(error, (OperationalError, InterfaceError))
+                if attempt or not transient:
                     logger.error("Batch flush error: %s", error)
-                    return
+                    return "retry" if transient else "rejected"
                 logger.warning("Temporary database failure; retrying AIS batch")
             finally:
                 db.close()
