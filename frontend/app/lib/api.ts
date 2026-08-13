@@ -111,9 +111,9 @@ export interface Weather {
 }
 
 export interface VesselDetail extends Vessel {
-  alert_id?: string;
-  alert_status?: string;
-  alert_feedback?: string;
+  alert_id?: string | null;
+  alert_status?: string | null;
+  alert_feedback?: string | null;
   operator_notes?: string[];
   positions: Position[];
   anomaly_signals: AnomalySignal[];
@@ -378,7 +378,8 @@ const liveApi = {
     if (bounds) params.set("bounds", JSON.stringify(bounds));
     return fetchAPI<PaginatedResponse<Vessel>>(`/vessels?${params}`);
   },
-  getVesselDetail: (id: string) => fetchAPI<VesselDetail>(`/vessels/${id}`),
+  getVesselDetail: (id: string, alertId?: string) =>
+    fetchAPI<VesselDetail>(`/vessels/${id}${alertId ? `?alert_id=${encodeURIComponent(alertId)}` : ""}`),
   getAlerts: (status?: string, region?: string, limit = 500, offset = 0, bounds?: MapBounds) => {
     const params = new URLSearchParams();
     if (status) params.set("status", status);

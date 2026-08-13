@@ -163,9 +163,13 @@ function RiskSparkline({ data }: { data: RiskHistoryPoint[] }) {
   );
 }
 
-export default function VesselDetailPanel({
+export default function VesselDetailPanel(props: VesselDetailProps) {
+  return <VesselDetailContent key={`${props.vessel.id}:${props.alertId ?? props.vessel.alert_id ?? ""}`} {...props} />;
+}
+
+function VesselDetailContent({
   vessel,
-  alertId,
+  alertId: selectedAlertId,
   onClose,
   onSatelliteOverlay,
   onAlertAction,
@@ -173,9 +177,22 @@ export default function VesselDetailPanel({
   verificationFocus,
 }: VesselDetailProps) {
   const { api, isDemo } = useDataSource();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const alertId = selectedAlertId ?? vessel.alert_id ?? null;
+  const [initialAlert] = useState(() => vessel.alert_id === alertId ? {
+    status: vessel.alert_status ?? null,
+    notes: vessel.operator_notes ?? [],
+    feedback: vessel.alert_feedback ?? null,
+  } : null);
   const [verification, setVerification] = useState<VerificationRequest | null>(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const lastRangeRef = useRef<number | null>(null);
   const lastVelRef = useRef<number | null>(null);
   const everDetectedRef = useRef(false);
@@ -308,11 +325,12 @@ export default function VesselDetailPanel({
       return;
     }
     setExportLoading(true);
+    setExportError(null);
     api.getVesselReport(vessel.id).then((report) => {
       setExportReport(report);
       setShowReport(true);
-    }).catch((e) => {
-      console.error("Export report failed:", e);
+    }).catch(() => {
+      setExportError("Couldn’t load the report. Try again.");
     }).finally(() => {
       setExportLoading(false);
     });
@@ -320,66 +338,98 @@ export default function VesselDetailPanel({
 
 
   // Alert action state
-  const [alertStatus, setAlertStatus] = useState<string | null>(vessel.alert_status ?? null);
+  const [alertStatus, setAlertStatus] = useState<string | null>(initialAlert?.status ?? null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [operatorLoading, setOperatorLoading] = useState(!!alertId && !initialAlert);
+  const [operatorError, setOperatorError] = useState<string | null>(null);
+  const [operatorRetry, setOperatorRetry] = useState(0);
 
   // Operator notes state
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
-  const [savedNotes, setSavedNotes] = useState<string[]>(vessel.operator_notes ?? []);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [savedNotes, setSavedNotes] = useState<string[]>(initialAlert?.notes ?? []);
 
   // Feedback state
-  const [feedback, setFeedback] = useState<string | null>(vessel.alert_feedback ?? null);
+  const [feedback, setFeedback] = useState<string | null>(initialAlert?.feedback ?? null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!alertId || initialAlert) return;
+    let cancelled = false;
+    setOperatorLoading(true);
+    setOperatorError(null);
+    api.getVesselDetail(vessel.id, alertId).then((detail) => {
+      if (detail.alert_id !== alertId) throw new Error("Alert details do not match selection");
+      if (cancelled) return;
+      setAlertStatus(detail.alert_status ?? null);
+      setSavedNotes(detail.operator_notes ?? []);
+      setFeedback(detail.alert_feedback ?? null);
+    }).catch(() => {
+      if (!cancelled) setOperatorError("Couldn’t load this alert’s saved details.");
+    }).finally(() => {
+      if (!cancelled) setOperatorLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [api, alertId, initialAlert, operatorRetry, vessel.id]);
+
+  const operatorUnavailable = operatorLoading || operatorError !== null;
 
   const handleAlertAction = useCallback(async (action: string) => {
-    if (!alertId) return;
+    if (!alertId || operatorUnavailable) return;
     setActionLoading(action);
+    setActionError(null);
     try {
       const res = await api.alertAction(alertId, action);
+      if (!mounted.current) return;
       setAlertStatus(res.status);
       onAlertAction?.(alertId, res.status);
-    } catch (e) {
-      console.error("Alert action failed:", e);
+    } catch {
+      setActionError("Couldn’t update this alert. Try again.");
     } finally {
       setActionLoading(null);
     }
-  }, [alertId, api, onAlertAction]);
+  }, [alertId, api, onAlertAction, operatorUnavailable]);
 
   const handleSaveNote = useCallback(async () => {
-    if (!alertId || !noteText.trim()) return;
+    if (!alertId || !noteText.trim() || operatorUnavailable) return;
     setNoteSaving(true);
+    setNoteError(null);
     try {
       await api.alertAction(alertId, "note", noteText.trim());
       setSavedNotes((prev) => [...prev, noteText.trim()]);
-      setNoteText("");
-    } catch (e) {
-      console.error("Save note failed:", e);
+      setNoteText((current) => current === noteText ? "" : current);
+    } catch {
+      setNoteError("Couldn’t save your note. Your draft is still here.");
     } finally {
       setNoteSaving(false);
     }
-  }, [alertId, api, noteText]);
+  }, [alertId, api, noteText, operatorUnavailable]);
 
   const handleFeedback = useCallback(async (value: string) => {
-    if (!alertId) return;
+    if (!alertId || operatorUnavailable) return;
     setFeedbackLoading(true);
+    setFeedbackError(null);
     try {
       await api.alertAction(alertId, "feedback", undefined, value);
       setFeedback(value);
-    } catch (e) {
-      console.error("Feedback failed:", e);
+    } catch {
+      setFeedbackError("Couldn’t save feedback. Try again.");
     } finally {
       setFeedbackLoading(false);
     }
-  }, [alertId, api]);
+  }, [alertId, api, operatorUnavailable]);
 
   const handleVerify = async () => {
     setVerifyLoading(true);
+    setVerifyError(null);
     try {
       const vr = await api.createVerificationRequest(alertId, vessel.id, verificationFocus);
       setVerification(vr);
-    } catch (e) {
-      console.error("Verification request failed:", e);
+    } catch {
+      setVerifyError("Couldn’t request imagery. Try again.");
     } finally {
       setVerifyLoading(false);
     }
@@ -442,6 +492,7 @@ export default function VesselDetailPanel({
       </div>
 
       {/* Inactive / Resolved Status Banner */}
+      {exportError && <p role="alert" className="px-4 py-3 text-xs text-red-300">{exportError}</p>}
       {(vessel.is_inactive || vessel.is_resolved) && (
         <div className="border-b border-[var(--workspace-border)] px-4 py-2 text-xs leading-5 text-slate-400">
           {vessel.status_reason || (vessel.is_resolved ? "Alert resolved" : "Inactive")}
@@ -474,29 +525,37 @@ export default function VesselDetailPanel({
               </span>
             )}
           </div>
+          {operatorLoading && <p className="mb-2 text-xs text-slate-400">Loading saved details…</p>}
+          {operatorError && (
+            <div role="alert" className="mb-2 text-xs text-red-300">
+              <p>{operatorError}</p>
+              <button onClick={() => setOperatorRetry((value) => value + 1)} className="min-h-11 underline underline-offset-4">Retry</button>
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => handleAlertAction("acknowledge")}
-              disabled={actionLoading !== null}
+              disabled={actionLoading !== null || operatorUnavailable}
               className="min-h-11 flex-1 py-2 px-2 bg-[#355b69] hover:bg-[#294955] disabled:opacity-50 text-[#fffdf7] text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "acknowledge" ? "Saving…" : "Acknowledge"}
             </button>
             <button
               onClick={() => handleAlertAction("dismiss")}
-              disabled={actionLoading !== null}
+              disabled={actionLoading !== null || operatorUnavailable}
               className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "dismiss" ? "Saving…" : "Dismiss"}
             </button>
             <button
               onClick={() => handleAlertAction("pin")}
-              disabled={actionLoading !== null}
+              disabled={actionLoading !== null || operatorUnavailable}
               className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "pin" ? "Saving…" : "Pin"}
             </button>
           </div>
+          {actionError && <p role="alert" className="mt-2 text-xs text-red-300">{actionError}</p>}
         </div>
       )}
 
@@ -700,6 +759,7 @@ export default function VesselDetailPanel({
       {riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3" data-tour="satellite-section">
           <h3 className="text-sm font-medium text-slate-200 mb-2">Satellite imagery</h3>
+          {verifyError && <p role="alert" className="mb-2 text-xs text-red-300">{verifyError}</p>}
           {isDemo ? (
             <p className="text-xs leading-relaxed text-slate-400">Satellite requests are unavailable in simulation.</p>
           ) : verification ? (
@@ -908,6 +968,7 @@ export default function VesselDetailPanel({
           )}
           <textarea
             value={noteText}
+            disabled={operatorUnavailable}
             onChange={(e) => setNoteText(e.target.value)}
             aria-label="Operator note"
             placeholder="Add a note…"
@@ -916,11 +977,12 @@ export default function VesselDetailPanel({
           />
           <button
             onClick={handleSaveNote}
-            disabled={noteSaving || !noteText.trim()}
+            disabled={noteSaving || !noteText.trim() || operatorUnavailable}
             className="mt-2 min-h-11 py-2 px-4 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-40 text-slate-200 text-sm font-medium rounded transition-colors"
           >
             {noteSaving ? "Saving…" : "Save note"}
           </button>
+          {noteError && <p role="alert" className="mt-2 text-xs text-red-300">{noteError}</p>}
         </div>
       )}
 
@@ -940,20 +1002,21 @@ export default function VesselDetailPanel({
             <div className="flex gap-2">
               <button
                 onClick={() => handleFeedback("confirmed")}
-                disabled={feedbackLoading}
+                disabled={feedbackLoading || operatorUnavailable}
                 className="flex-1 py-2 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 hover:border-red-500/35 disabled:opacity-50 text-red-400 text-[11px] font-medium rounded-lg transition-all"
               >
                 {feedbackLoading ? "..." : "Confirmed Threat"}
               </button>
               <button
                 onClick={() => handleFeedback("false_positive")}
-                disabled={feedbackLoading}
+                disabled={feedbackLoading || operatorUnavailable}
                 className="flex-1 py-2 px-3 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/20 hover:border-slate-500/30 disabled:opacity-50 text-slate-400 text-[11px] font-medium rounded-lg transition-all"
               >
                 {feedbackLoading ? "..." : "False Positive"}
               </button>
             </div>
           )}
+          {feedbackError && <p role="alert" className="mt-2 text-xs text-red-300">{feedbackError}</p>}
         </div>
       )}
 

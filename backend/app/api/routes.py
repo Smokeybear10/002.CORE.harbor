@@ -364,8 +364,26 @@ def list_vessels(
     }
 
 
+def _alert_notes(db: Session, alert: AlertORM | None) -> list[str]:
+    if alert is None:
+        return []
+    entries = db.query(AlertAuditORM).filter(AlertAuditORM.alert_id == alert.id).order_by(
+        AlertAuditORM.timestamp, AlertAuditORM.id,
+    ).all()
+    notes = []
+    for entry in entries:
+        try:
+            details = json.loads(entry.details or "null")
+        except json.JSONDecodeError:
+            details = {"notes": entry.details} if entry.action in ("note", "noted") else None
+        note = details.get("notes") if isinstance(details, dict) else None
+        if isinstance(note, str) and note.strip():
+            notes.append(note)
+    return notes or ([alert.operator_notes] if alert.operator_notes else [])
+
+
 @router.get("/vessels/{vessel_id}", response_model=VesselDetailSchema)
-def get_vessel_detail(vessel_id: str, db: Session = Depends(get_db)):
+def get_vessel_detail(vessel_id: str, alert_id: str | None = None, db: Session = Depends(get_db)):
     """Get detailed vessel info with position trail and anomaly signals."""
     vessel = db.query(VesselORM).filter(VesselORM.id == vessel_id).first()
     if not vessel:
@@ -400,7 +418,11 @@ def get_vessel_detail(vessel_id: str, db: Session = Depends(get_db)):
     status_reason = None
     
     # Check if latest alert was resolved by an operator (not auto-resolved by system)
-    latest_alert = db.query(AlertORM).filter(AlertORM.vessel_id == vessel_id).order_by(AlertORM.created_at.desc()).first()
+    vessel_alerts = db.query(AlertORM).filter(AlertORM.vessel_id == vessel_id)
+    latest_alert = vessel_alerts.order_by(AlertORM.created_at.desc(), AlertORM.id.desc()).first()
+    reviewed_alert = vessel_alerts.filter(AlertORM.id == alert_id).first() if alert_id else latest_alert
+    if alert_id and reviewed_alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found for this vessel")
     if latest_alert and latest_alert.status in ("resolved", "dismissed"):
         if latest_alert.operator_notes:
             is_resolved = True
@@ -428,6 +450,10 @@ def get_vessel_detail(vessel_id: str, db: Session = Depends(get_db)):
 
     return VesselDetailSchema(
         id=vessel.id,
+        alert_id=reviewed_alert.id if reviewed_alert else None,
+        alert_status=reviewed_alert.status if reviewed_alert else None,
+        alert_feedback=reviewed_alert.feedback if reviewed_alert else None,
+        operator_notes=_alert_notes(db, reviewed_alert),
         mmsi=vessel.mmsi,
         name=vessel.name,
         vessel_type=vessel.vessel_type,

@@ -265,6 +265,10 @@ class WeatherSchema(BaseModel):
 
 
 class VesselDetailSchema(VesselSchema):
+    alert_id: Optional[str] = None
+    alert_status: Optional[str] = None
+    alert_feedback: Optional[str] = None
+    operator_notes: list[str] = []
     positions: list[PositionReportSchema] = []
     anomaly_signals: list[AnomalySignalSchema] = []
     explanation: Optional[str] = None

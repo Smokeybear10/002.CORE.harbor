@@ -77,6 +77,55 @@ def test_historical_alerts_notes_and_audit_survive_resolution(history_client):
     assert any(alert["operator_notes"] == "Saved note active" for alert in resolved["alert_history"])
 
 
+def test_vessel_detail_restores_notes_and_feedback_for_the_selected_alert(history_client):
+    client, db = history_client
+    for index, status in enumerate(("active", "dismissed")):
+        db.add(AlertORM(
+            id=f"review-{index}", vessel_id="saved", created_at=datetime(2026, 10, 31, index),
+            status=status, risk_score=45, recommended_action="monitor", explanation="Fixture alert",
+        ))
+    db.commit()
+    for alert_id, note in (("review-0", "Older alert note"), ("review-1", "First note"), ("review-1", "Second note")):
+        assert client.post(f"/api/alerts/{alert_id}/action", json={"action": "note", "notes": note}).status_code == 200
+    assert client.post("/api/alerts/review-1/action", json={"action": "feedback", "feedback": "confirmed"}).status_code == 200
+
+    latest = client.get("/api/vessels/saved").json()
+    assert latest["alert_id"] == "review-1"
+    assert latest["alert_status"] == "dismissed"
+    assert latest["alert_feedback"] == "confirmed"
+    assert latest["operator_notes"] == ["First note", "Second note"]
+
+    older = client.get("/api/vessels/saved", params={"alert_id": "review-0"}).json()
+    assert older["alert_id"] == "review-0"
+    assert older["alert_status"] == "active"
+    assert older["alert_feedback"] is None
+    assert older["operator_notes"] == ["Older alert note"]
+
+
+def test_vessel_detail_rejects_alerts_from_another_vessel(history_client):
+    client, db = history_client
+    db.add(VesselORM(id="other", mmsi="987654321", vessel_type="cargo", flag_state="US"))
+    db.flush()
+    db.add(AlertORM(id="foreign-alert", vessel_id="other", status="active"))
+    db.commit()
+    for alert_id in ("foreign-alert", "missing-alert"):
+        assert client.get("/api/vessels/saved", params={"alert_id": alert_id}).status_code == 404
+    detail = client.get("/api/vessels/saved").json()
+    assert detail["alert_id"] is None
+    assert detail["operator_notes"] == []
+
+
+def test_vessel_detail_preserves_legacy_note_storage(history_client):
+    client, db = history_client
+    db.add(AlertORM(id="legacy", vessel_id="saved", status="acknowledged", operator_notes="Legacy note"))
+    db.commit()
+    assert client.get("/api/vessels/saved").json()["operator_notes"] == ["Legacy note"]
+    db.add(AlertAuditORM(alert_id="legacy", action="noted", details="Legacy note"))
+    db.add(AlertAuditORM(alert_id="legacy", action="feedback", details="not json"))
+    db.commit()
+    assert client.get("/api/vessels/saved").json()["operator_notes"] == ["Legacy note"]
+
+
 def test_alert_history_is_paginated_and_report_cutoff_stays_stable(history_client):
     client, db = history_client
     start = add_positions(db, 2)

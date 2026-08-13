@@ -83,8 +83,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const { api, isDemo } = useDataSource();
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [alertsTotal, setAlertsTotal] = useState(0);
-  const alertsLimitRef = useRef(50);
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [regions, setRegions] = useState<Record<string, Region>>({});
   const [activeRegion, setActiveRegion] = useState<string | null>(isDemo ? "la_harbor" : null);
@@ -158,7 +156,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         setVessels(v.items);
         liveVesselsRef.current = v.items;
         setAlerts(a.items);
-        setAlertsTotal(a.total);
         setGeofences(g);
         setRegions(r);
         setIngestionStatus(status);
@@ -278,10 +275,9 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         }).catch(() => {
           if (isCurrent()) setConnectionOk(false);
         }),
-        api.getAlerts(context.alertStatusFilter || undefined, undefined, alertsLimitRef.current, 0, viewport).then((a) => {
+        api.getAlerts(context.alertStatusFilter || undefined, undefined, 50, 0, viewport).then((a) => {
           if (!isCurrent()) return;
           setAlerts((prev) => shallowAlertListEqual(prev, a.items) ? prev : a.items);
-          setAlertsTotal(a.total);
         }),
         api.getIngestionStatus().then((status) => {
           if (isCurrent()) setIngestionStatus(status);
@@ -363,7 +359,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     setSelectedVessel(null);
     setSelectedAlertId(null);
     setMapClickFocus(null);
-    alertsLimitRef.current = 50;
 
     // Fly to the region
     if (regionKey && regions[regionKey]) {
@@ -384,7 +379,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
       ]);
       setVessels(v.items);
       setAlerts(a.items);
-      setAlertsTotal(a.total);
     } catch {}
   }, [regions, api, alertStatusFilter, isDemo]);
 
@@ -392,6 +386,8 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     const revision = ++selectionRevisionRef.current;
     if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; }
     setDetailClosing(false);
+    setSelectedVessel(null);
+    setSelectedAlertId(null);
     if (showAnalyticsRef.current) {
       setAnalyticsClosing(true);
       if (analyticsCloseTimerRef.current) clearTimeout(analyticsCloseTimerRef.current);
@@ -426,17 +422,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     void handleSelectVessel(alert.vessel_id, alert.id);
   }, [handleSelectVessel]);
 
-  const handleLoadMoreAlerts = useCallback(async () => {
-    try {
-      const regionParam = isDemo ? activeRegion || undefined : undefined;
-      const newLimit = alerts.length + 50;
-      const a = await api.getAlerts(alertStatusFilter || undefined, regionParam, newLimit, 0, !isDemo && viewport ? viewport : undefined);
-      alertsLimitRef.current = newLimit;
-      setAlerts(a.items);
-      setAlertsTotal(a.total);
-    } catch {}
-  }, [activeRegion, alerts.length, api, alertStatusFilter, isDemo, viewport]);
-
   const handleCloseDetail = useCallback(() => {
     selectionRevisionRef.current += 1;
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -451,13 +436,19 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   }, []);
 
   const handleAlertAction = useCallback(async (alertId: string, newStatus: string) => {
+    const revision = selectionRevisionRef.current;
     setAlerts((prev) =>
       prev.map((a) => a.id === alertId ? { ...a, status: newStatus } : a)
     );
     if (isDemo) {
       const result = await api.getVessels(activeRegion ?? undefined);
+      if (revision !== selectionRevisionRef.current) return;
       setVessels(result.items);
-      if (selectedVessel) setSelectedVessel(await api.getVesselDetail(selectedVessel.id));
+      if (selectedVessel) {
+        const detail = await api.getVesselDetail(selectedVessel.id);
+        if (revision !== selectionRevisionRef.current) return;
+        setSelectedVessel(detail);
+      }
     }
     showToast(
       newStatus === "dismissed" ? "Alert dismissed" : newStatus === "acknowledged" ? "Alert acknowledged" : `Alert ${newStatus}`,
