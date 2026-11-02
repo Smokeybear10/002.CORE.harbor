@@ -27,6 +27,11 @@ interface MapViewProps {
 
 const vesselColor = riskHex;
 const SHIP_MARKER_ZOOM = 10;
+const WORLD_BOUNDS: [[number, number], [number, number]] = [[-180, -65], [180, 80]];
+const constrainLiveMap: maplibregl.TransformConstrainFunction = (center, zoom) => ({
+  center: new maplibregl.LngLat(center.lng, Math.max(-85, Math.min(85, center.lat))),
+  zoom: Math.max(-2, Math.min(22, zoom)),
+});
 
 function geofenceColor(zoneType: string): string {
   switch (zoneType) {
@@ -225,6 +230,54 @@ function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | 
   }
 
   return "https://tiles.openfreemap.org/styles/dark";
+}
+
+function applyMapPalette(map: maplibregl.Map) {
+  const layers = map.getStyle().layers;
+  const water = layers.find((layer) => layer.id === "water");
+  if (!water || water.type !== "fill") return;
+
+  for (const layer of layers) {
+    if (layer.type === "background") map.setPaintProperty(layer.id, "background-color", "#263137");
+    if (layer.type === "fill") {
+      const color = layer.id === "water" ? "#122631"
+        : layer.id === "building" ? "#334149"
+        : layer.id === "road_area_pier" ? "#536670" : "#28363c";
+      map.setPaintProperty(layer.id, "fill-color", color);
+    }
+    if (layer.type === "line") {
+      const transport = layer.id.startsWith("highway") || layer.id.startsWith("railway");
+      if (transport) {
+        map.setPaintProperty(layer.id, "line-color", "#61717a");
+        map.setPaintProperty(layer.id, "line-opacity", ["interpolate", ["linear"], ["zoom"], 6, 0.06, 10, 0.16, 14, 0.4]);
+      } else if (layer.id === "waterway") {
+        map.setPaintProperty(layer.id, "line-color", "#122631");
+      } else if (layer.id.startsWith("boundary")) {
+        map.setPaintProperty(layer.id, "line-color", "#6a7c86");
+        map.setPaintProperty(layer.id, "line-opacity", 0.35);
+      }
+    }
+    if (layer.type === "symbol" && layer.layout?.["text-field"]) {
+      const waterLabel = layer.id === "water_name";
+      const minZoom = layer.id === "place_city_large" ? 4
+        : layer.id === "place_city" ? 6
+        : layer.id === "place_town" ? 8
+        : ["place_other", "place_suburb", "place_village"].includes(layer.id) ? 10
+        : layer.id === "place_state" ? 5 : null;
+      if (minZoom !== null) map.setLayerZoomRange(layer.id, minZoom, layer.maxzoom ?? 24);
+      map.setPaintProperty(layer.id, "text-color", waterLabel ? "#7896a8" : "#a5b4bc");
+      map.setPaintProperty(layer.id, "text-halo-color", waterLabel ? "#122631" : "#263137");
+      map.setPaintProperty(layer.id, "text-halo-width", 1);
+    }
+  }
+  map.addLayer({
+    id: "coastline-outline",
+    type: "line",
+    source: water.source,
+    "source-layer": water["source-layer"],
+    filter: water.filter,
+    paint: { "line-color": "#59717e", "line-width": 0.75, "line-opacity": 0.45 },
+  }, "water_name");
 }
 
 export default function MapView({
@@ -512,7 +565,11 @@ export default function MapView({
         zoom: isDemo ? 12.5 : 2,
         pitch: 0,
         attributionControl: false,
-        ...(isDemo && mapContainer.current.clientWidth < 640 ? {
+        ...(!isDemo ? {
+          transformConstrain: constrainLiveMap,
+          bounds: WORLD_BOUNDS,
+          fitBoundsOptions: { padding: { top: mapContainer.current.clientWidth < 640 ? 132 : 84, bottom: 80, left: 24, right: 24 } },
+        } : mapContainer.current.clientWidth < 640 ? {
           bounds: [[-118.325, 33.66], [-118.205, 33.76]] as [[number, number], [number, number]],
           fitBoundsOptions: { padding: { top: 140, bottom: 180, left: 24, right: 60 } },
         } : {}),
@@ -592,6 +649,7 @@ export default function MapView({
     map.on("resize", reportViewport);
     map.on("style.load", () => {
       hideVesselTooltip();
+      applyMapPalette(map);
       styleLoadedRef.current = true;
       setStyleVersion((version) => version + 1);
     });
@@ -683,6 +741,13 @@ export default function MapView({
 
   useEffect(() => {
     if (!flyTo || !mapRef.current) return;
+    if (!isDemo && flyTo.zoom === 2) {
+      mapRef.current.fitBounds(WORLD_BOUNDS, {
+        padding: { top: mapRef.current.getContainer().clientWidth < 640 ? 132 : 84, bottom: 80, left: 24, right: 24 },
+        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
+      });
+      return;
+    }
     mapRef.current.easeTo({
       center: flyTo.center,
       zoom: flyTo.zoom,
@@ -817,7 +882,7 @@ export default function MapView({
         ref={mapContainer}
         role="application"
         aria-label={`Vessel tracking map · ${vessels.length} tracked vessel${vessels.length === 1 ? "" : "s"}. Use the alert queue or search (Cmd+K) to select a vessel.`}
-        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%", background: mapMode === "dark" ? "#122631" : "#080d12" }}
       />
       {mapUnavailable && (
         <div role="status" className="absolute inset-0 flex items-center justify-center px-6">
@@ -829,13 +894,20 @@ export default function MapView({
       )}
       {/* Base map toggle */}
       <div ref={styleMenuRef} aria-label="Map style" className="absolute bottom-[var(--map-tools-bottom)] right-3 z-10">
-        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-40 rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1 shadow-lg">
-          <p className="px-3 py-2 text-xs font-medium text-slate-400">Basemap</p>
-          {([['dark', 'Map'], ['maps', 'Hybrid'], ['satellite', 'Satellite']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mapMode === value} onClick={() => { setMapMode(value); setStyleMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between rounded px-3 text-xs ${mapMode === value ? "bg-white/[0.07] text-white" : "text-slate-300 hover:bg-white/[0.04]"}`}>{label}{mapMode === value && <span aria-hidden="true">✓</span>}</button>)}
+        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-52 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5 shadow-lg">
+          <p className="px-3 py-2 text-xs font-medium text-slate-400">Map style</p>
+          {([['dark', 'Map'], ['maps', 'Hybrid'], ['satellite', 'Satellite']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mapMode === value} onClick={() => { setMapMode(value); setStyleMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between rounded px-3 text-sm ${mapMode === value ? "bg-white/[0.07] text-white" : "text-slate-300 hover:bg-white/[0.04]"}`}>{label}{mapMode === value && <span aria-hidden="true">✓</span>}</button>)}
+          <div className="mt-1 border-t border-[var(--workspace-border)] px-3 py-3 text-xs text-slate-300">
+            <p className="mb-2 text-slate-400">Vessel risk score</p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {([["#8da5b7", "Below 35"], ["#f59e0b", "35–59"], ["#f97316", "60–79"], ["#ef4444", "80–100"]] as const).map(([color, label]) => <span key={label} className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />{label}</span>)}
+            </div>
+            <p className="mt-2 text-slate-400">Based on detected behavior.</p>
+          </div>
         </div>}
-        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40">
+        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" /></svg>
-          <span className="hidden min-[360px]:inline">Basemap</span>
+          <span className="hidden min-[360px]:inline">Map style</span>
         </button>
       </div>
 

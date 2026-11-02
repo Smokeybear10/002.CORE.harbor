@@ -50,14 +50,14 @@ function buildStages(): DemoStage[] {
             The future of naval warfare is shifting from ship-to-ship combat to
             asymmetric drone warfare.{" "}
             <span className="text-white font-semibold">
-              HarborOS is built for this new reality.
+              The app brings reported vessel activity into one map.
             </span>
           </p>
         </div>
       ),
       subtitle: (
         <p className="text-slate-400 text-sm mt-4 italic">
-          HarborOS fuses AIS intelligence, anomaly detection, satellite imagery,
+          The app fuses AIS intelligence, anomaly detection, satellite imagery,
           and computer vision to provide a unified operating picture.
         </p>
       ),
@@ -82,7 +82,7 @@ function buildStages(): DemoStage[] {
             required to broadcast its position, speed, heading, and identity.
           </p>
           <p>
-            HarborOS ingests live AIS feeds via the{" "}
+            The app ingests live AIS feeds via the{" "}
             <span className="text-cyan-400">AISStream WebSocket API</span>,
             covering{" "}
             <span className="text-white font-semibold">
@@ -128,7 +128,7 @@ function buildStages(): DemoStage[] {
             <span className="font-mono text-red-300">2 minutes</span>.
           </p>
           <p>
-            HarborOS flagged this as{" "}
+            The app flagged this as{" "}
             <span className="text-cyan-400 font-semibold">
               kinematic implausibility
             </span>{" "}
@@ -226,7 +226,7 @@ function buildStages(): DemoStage[] {
             <span className="font-mono text-cyan-300">5-day revisit</span>.
           </p>
           <p>
-            HarborOS searches the Copernicus catalog for the most recent
+            The app searches the Copernicus catalog for the most recent
             cloud-free imagery over the vessel&apos;s position and overlays it
             directly on the operational map.
           </p>
@@ -254,7 +254,7 @@ function buildStages(): DemoStage[] {
       body: (
         <div className="space-y-4">
           <p>
-            This is what sets HarborOS apart. Our edge computing system —{" "}
+            The edge computing system —{" "}
             <span className="text-cyan-400 font-semibold">SeaPod</span> — uses
             shore-mounted cameras and onboard{" "}
             <span className="text-cyan-400 font-semibold">computer vision</span>{" "}
@@ -318,7 +318,7 @@ function buildStages(): DemoStage[] {
       body: (
         <div className="space-y-4">
           <p>
-            HarborOS tracks detection metrics across all monitored regions —{" "}
+            The app tracks detection metrics across all monitored regions —{" "}
             <span className="text-cyan-400 font-semibold">precision rates</span>,
             alert distribution, vessel counts, and ingestion throughput.
           </p>
@@ -337,11 +337,11 @@ function buildStages(): DemoStage[] {
 
     // ── Stage 9: Closing ──────────────────────────────
     {
-      title: "HarborOS",
+      title: "Vessel tracking",
       body: (
         <div className="text-center space-y-4">
           <p className="text-xl text-slate-200 leading-relaxed">
-            Maritime domain awareness for the age of autonomous warfare.
+            Vessel positions, saved reports, and activity alerts.
           </p>
           <p className="text-base text-cyan-400 tracking-wide">
             AIS Intelligence · Anomaly Detection · Satellite Verification ·
@@ -351,7 +351,7 @@ function buildStages(): DemoStage[] {
       ),
       subtitle: (
         <p className="text-center text-slate-500 text-sm mt-4">
-          Built by Team HarborOS. Questions?
+          Explore the map to inspect vessels and their reports.
         </p>
       ),
       action: (props) => {

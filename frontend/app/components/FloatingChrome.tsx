@@ -28,17 +28,17 @@ type FloatingChromeProps = {
 const REGION_ABBREV: Record<string, string> = {
   la_harbor: "LA / Long Beach",
   taiwan_strait: "Taiwan Strait",
-  south_china_sea: "S. China Sea",
+  south_china_sea: "South China Sea",
   strait_of_malacca: "Malacca",
   strait_of_hormuz: "Hormuz",
   black_sea: "Black Sea",
   sea_of_azov: "Azov",
-  english_channel: "English Ch.",
-  eastern_med: "E. Med",
+  english_channel: "English Channel",
+  eastern_med: "Eastern Mediterranean",
 };
 
 function shortName(key: string, name: string): string {
-  return REGION_ABBREV[key] ?? (name.length > 16 ? name.split(/[\s_-]/)[0] : name);
+  return REGION_ABBREV[key] ?? name;
 }
 
 export default function FloatingChrome({
@@ -133,7 +133,7 @@ export default function FloatingChrome({
 
   const activeLabel = activeRegion
     ? shortName(activeRegion, regions[activeRegion]?.name ?? activeRegion)
-    : isDemo ? "All monitored regions" : "Explore worldwide";
+    : isDemo ? "All regions" : zoomRequired ? "World map" : "Map area";
 
   const controlClass = "min-h-11 min-w-11 disabled:cursor-not-allowed disabled:opacity-40 items-center justify-center gap-2 rounded-md px-3 text-[13px] text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white";
   const reportTime = lastReportAt ? Date.parse(/[Zz]$|[+-]\d{2}:\d{2}$/.test(lastReportAt) ? lastReportAt : `${lastReportAt}Z`) : NaN;
@@ -153,10 +153,11 @@ export default function FloatingChrome({
   const reportAgeLabel = reportAge === null ? null : reportAge < 60 ? `${reportAge}s ago` : reportAge < 3600 ? `${Math.floor(reportAge / 60)}m ago` : `${Math.floor(reportAge / 3600)}h ago`;
 
   return (
-    <header aria-label="Map controls" className="absolute inset-x-0 top-0 z-30 border-b border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 py-2 sm:px-4">
+    <header aria-label="Map controls" className="absolute inset-x-0 top-0 z-30 border-b border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 py-3 sm:px-4">
       <div className="flex flex-wrap items-center gap-1 sm:flex-nowrap sm:gap-2">
-      <Link href={`/?mode=${mode}`} aria-label="H4BOR map" className="order-1 inline-flex min-h-11 shrink-0 items-center pr-2 text-slate-100 sm:mr-1 sm:border-r sm:border-[var(--workspace-border)] sm:pr-5">
-        <span className="font-mono text-[15px] font-semibold tracking-[0.08em]">H4BOR</span>
+      <Link href={`/?mode=${mode}`} aria-label="Vessel tracking map" className="order-1 inline-flex min-h-11 shrink-0 flex-col items-start justify-center gap-0.5 pr-2 text-slate-100 sm:mr-1 sm:border-r sm:border-[var(--workspace-border)] sm:pr-5">
+        <span className="text-base font-semibold leading-5">Vessel tracking</span>
+        <span className="text-xs text-slate-400">AIS map &amp; history</span>
       </Link>
 
       <div className="order-7 w-full sm:hidden" />
@@ -170,18 +171,18 @@ export default function FloatingChrome({
           aria-label={`Select region: ${activeLabel}`}
           onClick={() => setRegionOpen((v) => !v)}
           data-tour="regions"
-          className={`inline-flex ${controlClass} ${regionOpen ? "bg-white/[0.06] text-white" : ""}`}
+          className={`inline-flex border border-[var(--workspace-border)] ${controlClass} ${regionOpen ? "bg-white/[0.06] text-white" : "bg-white/[0.02]"}`}
         >
-          <span className="max-w-[110px] truncate font-medium sm:max-w-[180px]">{activeLabel}</span>
+          <span className="max-w-[150px] truncate font-medium sm:max-w-[180px]">{activeLabel}</span>
           <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={`shrink-0 text-slate-400 transition-transform ${regionOpen ? "rotate-180" : ""}`}>
             <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
         {regionOpen && (
-          <div id="region-options" className="absolute top-[calc(100%+8px)] left-0 max-h-[60dvh] w-[280px] max-w-[calc(100vw-40px)] overflow-y-auto rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5 shadow-lg">
+          <div id="region-options" className="absolute top-[calc(100%+8px)] left-0 max-h-[60dvh] w-[280px] max-w-[calc(100vw-40px)] overflow-y-auto rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5 shadow-lg">
             <div className="border-b border-[var(--workspace-border)] px-3 pb-3 pt-2">
-              <h2 className="text-sm font-medium text-slate-200">{isDemo ? "Demo coverage" : "Explore worldwide"}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-slate-400">{isDemo ? "Simulated vessel traffic in LA / Long Beach." : "Live AIS follows your map. Pan anywhere and zoom in, or jump to a location below."}</p>
+              <h2 className="text-sm font-medium text-slate-200">{isDemo ? "Demo area" : "Go to an area"}</h2>
+              <p className="mt-1 text-xs leading-relaxed text-slate-400">{isDemo ? "Simulated traffic in LA / Long Beach." : "Choose a location or pan the map to follow live AIS."}</p>
             </div>
             {Object.keys(regions).length > 1 && <RegionItem
               name={isDemo ? "All monitored regions" : "World map"}
@@ -213,19 +214,18 @@ export default function FloatingChrome({
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <circle cx="11" cy="11" r="7" /><path d="m21 21-5-5" />
         </svg>
-        <span className="hidden lg:inline">Search vessels</span>
+        <span>Search<span className="hidden lg:inline"> vessels</span></span>
         <kbd className="ml-auto hidden rounded border border-white/[0.1] px-1.5 py-0.5 font-mono text-[10px] text-slate-400 xl:inline">⌘K</kbd>
       </button>
       <div className="order-4 hidden flex-1 sm:block" />
-      <div aria-label="AIS feed status" className="order-9 ml-auto flex min-h-11 shrink-0 flex-col justify-center gap-1 px-2 text-xs text-slate-400 sm:order-5 sm:ml-0">
+      <div aria-label="AIS feed status" className="order-9 ml-auto flex min-h-11 min-w-0 flex-col justify-center gap-1 px-2 text-xs text-slate-400 sm:order-5 sm:ml-0">
         <div role="status" className="flex items-center gap-2">
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} />
-          <span>{statusLabel}</span>
-          {!loading && (isDemo || vesselCount > 0 || coverage?.subscribed) && <span className="hidden border-l border-[var(--workspace-border)] pl-2 text-slate-200 sm:inline">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}</span>}
+          <span className="truncate" title={statusLabel}>{statusLabel}</span>
         </div>
-        {!loading && (isDemo || reportAgeLabel) && <div className="pl-3.5 text-[11px]">
-          <span className="sm:hidden">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}{!isDemo && reportAgeLabel && " · "}</span>
-          {!isDemo && reportAgeLabel && <><span className="hidden sm:inline">Last report </span><time aria-label={`Last AIS report ${reportAgeLabel}`} dateTime={new Date(reportTime).toISOString()} title={new Date(reportTime).toUTCString()}>{reportAgeLabel}</time></>}
+        {!loading && (isDemo || reportAgeLabel || vesselCount > 0) && <div className="whitespace-nowrap pl-3.5 text-xs tabular-nums">
+          <span className="text-slate-300">{vesselCount.toLocaleString()} {vesselCount === 1 ? "vessel" : "vessels"}</span>
+          {!isDemo && reportAgeLabel && <><span className="px-1.5 text-slate-500">·</span><time aria-label={`Last AIS report ${reportAgeLabel}`} dateTime={new Date(reportTime).toISOString()} title={`Last AIS report: ${new Date(reportTime).toUTCString()}`}>{reportAgeLabel}</time></>}
         </div>}
       </div>
       <button type="button" data-tour="analytics-btn" aria-label="Analytics" disabled={(loading || !connectionOk) && !analyticsOpen} aria-pressed={analyticsOpen} onClick={onToggleAnalytics} className={`inline-flex ${controlClass} order-3 sm:order-6 ${analyticsOpen ? "bg-white/[0.08] text-white" : ""}`}>
