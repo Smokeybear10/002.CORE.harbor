@@ -9,7 +9,7 @@ interface LaunchButtonProps {
   href?: string;
 }
 
-export default function LaunchButton({ className, children, href = "/dashboard" }: LaunchButtonProps) {
+export default function LaunchButton({ className, children, href = "/" }: LaunchButtonProps) {
   const router = useRouter();
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export default function LaunchButton({ className, children, href = "/dashboard" 
     >
       {children ?? (
         <>
-          Launch Operations <span aria-hidden>→</span>
+          Open map <span aria-hidden>→</span>
         </>
       )}
     </button>

@@ -19,21 +19,21 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003/api";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "H4BOR | Maritime Intelligence Platform",
+  title: "H4BOR | Maritime Map",
   description:
-    "Live AIS, satellite fusion, and behavioral detection across nine contested waterways. Built for maritime operators.",
+    "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
   alternates: { canonical: "/" },
   twitter: {
     card: "summary_large_image",
-    title: "H4BOR | Maritime intelligence, for every horizon.",
+    title: "H4BOR | Maritime Map",
     description:
-      "Live AIS, satellite fusion, and behavioral detection across nine contested waterways.",
+      "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
   },
   openGraph: {
     type: "website",
-    title: "H4BOR | Maritime intelligence, for every horizon.",
+    title: "H4BOR | Maritime Map",
     description:
-      "Live AIS, satellite fusion, and behavioral detection across nine contested waterways.",
+      "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
   },
 };
 
@@ -42,7 +42,7 @@ const ORGANIZATION_SCHEMA = {
   "@type": "SoftwareApplication",
   name: "HarborOS",
   description:
-    "Maritime intelligence platform for contested littoral defense. Live AIS, satellite fusion, and behavioral detection across nine contested waterways.",
+    "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
   applicationCategory: "SecurityApplication",
   operatingSystem: "Web",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -66,7 +66,7 @@ export default function RootLayout({
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
     >
       <head>
-        {apiOrigin && <link rel="preconnect" href={apiOrigin} crossOrigin="anonymous" />}
+        {process.env.NEXT_PUBLIC_DATA_MODE === "live" && apiOrigin && <link rel="preconnect" href={apiOrigin} crossOrigin="anonymous" />}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_SCHEMA) }}

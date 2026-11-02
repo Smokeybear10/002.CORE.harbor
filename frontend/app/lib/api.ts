@@ -1,10 +1,17 @@
+import { demoApi } from "./demo-api";
+
+export type DataMode = "demo" | "live";
+export const DEFAULT_DATA_MODE: DataMode = "live";
+export function getDataMode(value: string | null): DataMode {
+  return value === "demo" || value === "live" ? value : DEFAULT_DATA_MODE;
+}
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api";
+export const IS_FREE_HOSTED_API = process.env.NEXT_PUBLIC_API_HOSTING === "render-free";
 
 // The FastAPI backend is hosted separately from this frontend. When it's down the
 // browser throws an opaque TypeError, so surface the actual cause to the operator.
 const OFFLINE_MESSAGE =
-  "Backend unreachable — live vessel data is unavailable. " +
-  "The FastAPI service is hosted separately; see the README to run it locally.";
+  "The live AIS service isn’t responding. Try again shortly or open the live demo.";
 
 export class BackendOfflineError extends Error {
   constructor() {
@@ -18,7 +25,8 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: { "Content-Type": "application/json", ...options?.headers },
+      signal: options?.signal ?? AbortSignal.timeout(8000),
+      headers: { ...(options?.body ? { "Content-Type": "application/json" } : {}), ...options?.headers },
     });
   } catch {
     throw new BackendOfflineError();
@@ -27,6 +35,7 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   // for "vessel not found", but a deleted Railway app also 404s with its own JSON body —
   // only the latter lacks the `detail` field FastAPI always sends.
   if (res.status >= 502 && res.status <= 504) throw new BackendOfflineError();
+  if (!res.headers.get("content-type")?.includes("application/json")) throw new BackendOfflineError();
   if (res.status === 404) {
     const body = await res.clone().json().catch(() => null);
     if (!body || typeof body.detail !== "string") throw new BackendOfflineError();
@@ -75,6 +84,10 @@ export interface Weather {
 }
 
 export interface VesselDetail extends Vessel {
+  alert_id?: string;
+  alert_status?: string;
+  alert_feedback?: string;
+  operator_notes?: string[];
   positions: Position[];
   anomaly_signals: AnomalySignal[];
   explanation: string | null;
@@ -325,7 +338,7 @@ export interface SatelliteSearchParams {
 
 // ── API Functions ─────────────────────────────────────
 
-export const api = {
+const liveApi = {
   getRegions: () => fetchAPI<Record<string, Region>>("/regions"),
   getVessels: (region?: string, limit = 500, offset = 0) => {
     const params = new URLSearchParams();
@@ -437,3 +450,7 @@ export const api = {
   getRiskHistory: (vesselId: string, hours = 6) =>
     fetchAPI<RiskHistoryPoint[]>(`/vessels/${vesselId}/risk-history?hours=${hours}`),
 };
+
+export type Api = typeof liveApi;
+export const getApi = (mode: DataMode): Api => mode === "demo" ? demoApi : liveApi;
+export const api = getApi(DEFAULT_DATA_MODE);
