@@ -100,6 +100,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const [areaLastReportAt, setAreaLastReportAt] = useState<string | null>(null);
   const viewerIdRef = useRef<string | null>(null);
   const viewportRevisionRef = useRef(0);
+  const viewportRef = useRef<MapBounds | null>(null);
   const [mapClickFocus, setMapClickFocus] = useState<[number, number] | null>(null);
   const [alertStatusFilter, setAlertStatusFilter] = useState<string>("active");
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -113,6 +114,10 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const [demoElapsed, setReplayElapsed] = useState(getDemoElapsed);
   const [demoPaused, setDemoPaused] = useState(false);
   const selectedVesselId = selectedVessel?.id;
+  const pollContextRef = useRef({ selectedVesselId, alertStatusFilter, metadataLoaded: false });
+  useEffect(() => {
+    pollContextRef.current = { selectedVesselId, alertStatusFilter, metadataLoaded: Object.keys(regions).length > 0 };
+  }, [selectedVesselId, alertStatusFilter, regions]);
   const searchParams = useSearchParams();
   const autoTour = searchParams.get("tour") === "1";
   const liveVesselsRef = useRef<Vessel[]>([]);
@@ -252,47 +257,48 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
       if (refreshing) return;
       refreshing = true;
       const requestRevision = revision;
-      try {
-        const nextCoverage = await watchMapCoverage(viewerId, requestRevision, bounds);
-        if (cancelled || released || requestRevision !== revision) return;
-        setCoverage(nextCoverage);
-        const watching = nextCoverage.state === "watching" && bounds !== null;
-        const [v, a, status] = await Promise.all([
-          watching ? api.getVessels(undefined, 500, 0, bounds) : { items: [], total: 0 },
-          watching ? api.getAlerts(alertStatusFilter || undefined, undefined, alertsLimitRef.current, 0, bounds) : { items: [], total: 0 },
-          api.getIngestionStatus().catch(() => null),
-        ]);
-        if (cancelled || released || requestRevision !== revision) return;
-        if (Object.keys(regions).length === 0) {
-          const [nextRegions, nextGeofences] = await Promise.all([api.getRegions(), api.getGeofences()]);
-          if (cancelled || released || requestRevision !== revision) return;
+      const isCurrent = () => !cancelled && !released && requestRevision === revision;
+      const context = pollContextRef.current;
+      await Promise.allSettled([
+        watchMapCoverage(viewerId, requestRevision, bounds).then((nextCoverage) => {
+          if (isCurrent()) setCoverage(nextCoverage);
+        }).catch(() => {
+          if (isCurrent()) setCoverage(null);
+        }),
+        // Retained positions are available even when this view is too wide to subscribe.
+        api.getVessels(undefined, 500, 0, viewport).then((v) => {
+          if (!isCurrent()) return;
+          setVessels((prev) => shallowVesselListEqual(prev, v.items) ? prev : v.items);
+          liveVesselsRef.current = v.items;
+          setVesselsTotal(v.total);
+          setAreaLastReportAt(v.last_report_at ?? null);
+          setConnectionOk(true);
+        }).catch(() => {
+          if (isCurrent()) setConnectionOk(false);
+        }),
+        api.getAlerts(context.alertStatusFilter || undefined, undefined, alertsLimitRef.current, 0, viewport).then((a) => {
+          if (!isCurrent()) return;
+          setAlerts((prev) => shallowAlertListEqual(prev, a.items) ? prev : a.items);
+          setAlertsTotal(a.total);
+        }),
+        api.getIngestionStatus().then((status) => {
+          if (isCurrent()) setIngestionStatus(status);
+        }).catch(() => {
+          if (isCurrent()) setIngestionStatus(null);
+        }),
+        !context.metadataLoaded && Promise.all([api.getRegions(), api.getGeofences()]).then(([nextRegions, nextGeofences]) => {
+          if (!isCurrent()) return;
           setRegions(nextRegions);
           setGeofences(nextGeofences);
-        }
-        // Skip state update (and the map marker diff pass it triggers) if nothing changed.
-        setVessels((prev) => (shallowVesselListEqual(prev, v.items) ? prev : v.items));
-        liveVesselsRef.current = v.items;
-        setVesselsTotal(v.total);
-        setAreaLastReportAt("last_report_at" in v ? v.last_report_at ?? null : null);
-        setAlerts((prev) => (shallowAlertListEqual(prev, a.items) ? prev : a.items));
-        setAlertsTotal(a.total);
-        setIngestionStatus(status);
-        if (selectedVesselId) {
-          const detail = await api.getVesselDetail(selectedVesselId).catch(() => null);
-          if (cancelled || released || requestRevision !== revision) return;
-          if (detail) setSelectedVessel((prev) => prev?.id === detail.id ? detail : prev);
-        }
-        setConnectionOk(true);
-      } catch {
-        if (cancelled || released || requestRevision !== revision) return;
-        if (connectionOk) showToast("Connection lost — retrying...", "error");
-        setConnectionOk(false);
-      } finally {
-        refreshing = false;
-      }
+        }),
+        context.selectedVesselId && api.getVesselDetail(context.selectedVesselId).then((detail) => {
+          if (isCurrent()) setSelectedVessel((prev) => prev?.id === detail.id ? detail : prev);
+        }),
+      ]);
+      refreshing = false;
     };
 
-    const initialTick = setTimeout(tick, 650);
+    const initialTick = setTimeout(tick, 200);
     refreshTimer.current = setInterval(tick, REFRESH_INTERVAL_MS);
     const handleVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -320,24 +326,30 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     window.addEventListener("pageshow", restoreCoverage);
     return () => {
       cancelled = true;
-      releaseCoverage();
       clearTimeout(initialTick);
       if (refreshTimer.current) clearInterval(refreshTimer.current);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("pagehide", releaseCoverage);
       window.removeEventListener("pageshow", restoreCoverage);
     };
-  }, [viewport, alertStatusFilter, api, connectionOk, isDemo, loading, regions, selectedVesselId, showToast]);
+  }, [viewport, api, isDemo, loading]);
+
+  useEffect(() => () => {
+    if (isDemo || !viewerIdRef.current) return;
+    void watchMapCoverage(viewerIdRef.current, ++viewportRevisionRef.current, null, { keepalive: true }).catch(() => {});
+  }, [isDemo]);
 
   const handleViewportChange = useCallback((bounds: MapBounds, manual: boolean) => {
     if (isDemo) return;
+    const previous = viewportRef.current;
+    if (manual) setActiveRegion(null);
+    if (previous && Math.abs(previous.west - bounds.west) < 0.00001
+      && Math.abs(previous.east - bounds.east) < 0.00001
+      && Math.abs(previous.south - bounds.south) < 0.00001
+      && Math.abs(previous.north - bounds.north) < 0.00001) return;
+    viewportRef.current = bounds;
     setViewport(bounds);
     setCoverage(null);
-    setVessels([]);
-    setVesselsTotal(0);
-    setAreaLastReportAt(null);
-    setAlerts([]);
-    if (manual) setActiveRegion(null);
   }, [isDemo]);
 
   // Region change handler
