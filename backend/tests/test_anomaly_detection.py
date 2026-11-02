@@ -2,6 +2,7 @@
 
 import sys
 import os
+import math
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from datetime import datetime, timedelta
@@ -18,6 +19,7 @@ from app.services.anomaly_detection import (
 
 class FakeVessel:
     def __init__(self, **kwargs):
+        self.vessel_type = "cargo"
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -56,9 +58,10 @@ def test_point_in_polygon():
 def test_geofence_breach_detected():
     import json
     vessel = FakeVessel(id="v1", name="Test")
-    # Position inside a restricted zone
+    # Sustained presence inside a restricted zone, rather than one stray fix.
     positions = [
-        FakePosition(33.750, -118.267, datetime(2026, 1, 1, 8, 0))
+        FakePosition(33.750, -118.267, datetime(2026, 1, 1, 8, 0) + timedelta(seconds=i * 10))
+        for i in range(3)
     ]
     geofence = FakeGeofence(
         id="gf1", name="Test Zone", zone_type="restricted", severity="high",
@@ -68,17 +71,20 @@ def test_geofence_breach_detected():
                              [-118.262, 33.755], [-118.272, 33.755], [-118.272, 33.748]]]
         })
     )
+    assert detect_geofence_breach(vessel, positions[:1], [geofence]) == []
     signals = detect_geofence_breach(vessel, positions, [geofence])
     assert len(signals) == 1
     assert signals[0].anomaly_type == AnomalyType.GEOFENCE_BREACH
-    assert signals[0].severity == 0.9
+    assert signals[0].severity == 0.65
+    assert signals[0].details["positions_inside"] == 3
 
 
 def test_geofence_no_breach():
     import json
     vessel = FakeVessel(id="v1", name="Test")
     positions = [
-        FakePosition(33.700, -118.300, datetime(2026, 1, 1, 8, 0))
+        FakePosition(33.700, -118.300, datetime(2026, 1, 1, 8, 0) + timedelta(seconds=i * 10))
+        for i in range(3)
     ]
     geofence = FakeGeofence(
         id="gf1", name="Test Zone", zone_type="restricted", severity="high",
@@ -95,14 +101,30 @@ def test_geofence_no_breach():
 def test_loitering_detected():
     vessel = FakeVessel(id="v1", name="Test")
     base_time = datetime(2026, 1, 1, 8, 0)
-    # 20 positions, all at near-zero speed in same spot
+    # Cargo vessel circles a small area for half an hour at 4 kt.
     positions = [
-        FakePosition(33.750 + i * 0.0001, -118.267, base_time + timedelta(minutes=i * 3), sog=0.2)
+        FakePosition(
+            33.750 + 0.005 * math.sin(math.radians(i * 18)),
+            -118.267 + 0.006 * math.cos(math.radians(i * 18)),
+            base_time + timedelta(seconds=i * 90),
+            sog=4.0, cog=(i * 18) % 360,
+        )
         for i in range(20)
     ]
     signals = detect_loitering(vessel, positions)
     assert len(signals) == 1
     assert signals[0].anomaly_type == AnomalyType.LOITERING
+    assert signals[0].details["total_course_change_deg"] == 342
+
+
+def test_anchored_vessel_is_not_loitering():
+    vessel = FakeVessel(id="v1", name="Test")
+    base_time = datetime(2026, 1, 1, 8, 0)
+    positions = [
+        FakePosition(33.750 + i * 0.0001, -118.267, base_time + timedelta(minutes=i * 3), sog=0.2)
+        for i in range(20)
+    ]
+    assert detect_loitering(vessel, positions) == []
 
 
 def test_speed_anomaly_detected():
@@ -158,6 +180,7 @@ if __name__ == "__main__":
         test_geofence_breach_detected,
         test_geofence_no_breach,
         test_loitering_detected,
+        test_anchored_vessel_is_not_loitering,
         test_speed_anomaly_detected,
         test_ais_gap_detected,
         test_no_anomalies_for_normal_vessel,
