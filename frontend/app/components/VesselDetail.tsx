@@ -134,10 +134,10 @@ function RiskSparkline({ data }: { data: RiskHistoryPoint[] }) {
   };
 
   return (
-    <div className="mt-3 bg-[#111827] rounded-lg border border-[#1a2235] overflow-hidden">
-      <div className="flex items-center justify-between px-3 pt-2 pb-1">
-        <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Risk Trend</span>
-        <span className={`text-[9px] font-semibold uppercase tracking-wide flex items-center gap-1 ${trendColor}`}>
+    <div className="mt-4 overflow-hidden border-t border-[var(--workspace-border)] pt-3">
+      <div className="flex items-center justify-between pb-2">
+        <span className="text-xs text-slate-400">Risk trend</span>
+        <span className={`text-xs flex items-center gap-1 ${trendColor}`}>
           <span>{trendIcon}</span> {trendLabel}
         </span>
       </div>
@@ -422,7 +422,7 @@ export default function VesselDetailPanel({
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0 pr-3">
             <h2 className="text-base font-semibold leading-snug text-slate-100 break-words">{vessel.name}</h2>
-            <span className="text-[11px] text-slate-500 font-mono">
+            <span className="text-xs text-slate-400 font-mono">
               MMSI {vessel.mmsi}{vessel.imo ? ` / IMO ${vessel.imo}` : ""}
             </span>
           </div>
@@ -438,7 +438,7 @@ export default function VesselDetailPanel({
             <button
               onClick={onClose}
               aria-label="Close vessel details"
-              className="w-11 h-11 rounded-lg bg-[#111827] border border-[#1a2235] flex items-center justify-center text-slate-400 hover:text-slate-300 hover:border-slate-600 transition-colors"
+              className="w-11 h-11 rounded flex items-center justify-center text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 transition-colors"
           >
             <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -450,7 +450,7 @@ export default function VesselDetailPanel({
 
       {/* Inactive / Resolved Status Banner */}
       {(vessel.is_inactive || vessel.is_resolved) && (
-        <div className="bg-slate-500/10 border-b border-[#1a2235] px-4 py-2 flex items-center gap-2">
+        <div className="bg-slate-500/10 border-b border-[var(--workspace-border)] px-4 py-2 flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
           <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
             {vessel.is_resolved ? "RESOLVED" : vessel.status_reason?.toLowerCase().includes("stationary") ? "STATIONARY" : "INACTIVE"}
@@ -462,15 +462,15 @@ export default function VesselDetailPanel({
       )}
 
       {/* Risk Score */}
-      <div className="px-4 py-3 border-b border-[#1a2235]">
+      <div className="px-4 py-3 border-b border-[var(--workspace-border)]">
         <div className="flex items-center gap-3 mb-2">
           <span className={`text-3xl font-bold font-mono leading-none ${riskColor(riskScore)}`}>
             {Math.round(riskScore)}
           </span>
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Risk</span>
-              <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border ${actionStyle(action)}`}>
+              <span className="text-sm font-medium text-slate-200">Risk score</span>
+              <span className={`text-xs font-medium capitalize px-1.5 py-0.5 rounded border ${actionStyle(action)}`}>
                 {action}
               </span>
             </div>
@@ -488,9 +488,9 @@ export default function VesselDetailPanel({
       {alertId && (
         <div className="mt-4 border-t border-[var(--workspace-border)] pt-3">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Review alert</h3>
+            <h3 className="text-sm font-medium text-slate-200">Review alert</h3>
             {alertStatus && (
-              <span className="text-[9px] font-semibold uppercase px-2 py-0.5 rounded-md border bg-blue-500/10 text-blue-400 border-blue-500/25">
+              <span className="text-xs text-slate-400 capitalize">
                 {alertStatus}
               </span>
             )}
@@ -499,21 +499,21 @@ export default function VesselDetailPanel({
             <button
               onClick={() => handleAlertAction("acknowledge")}
               disabled={actionLoading !== null}
-              className="min-h-11 flex-1 py-2 px-2 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:opacity-50 text-blue-400 text-xs font-medium rounded-lg transition-all"
+              className="min-h-11 flex-1 py-2 px-2 bg-slate-200 hover:bg-white disabled:opacity-50 text-slate-900 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "acknowledge" ? "..." : "Acknowledge"}
             </button>
             <button
               onClick={() => handleAlertAction("dismiss")}
               disabled={actionLoading !== null}
-              className="min-h-11 flex-1 py-2 px-2 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/20 hover:border-slate-500/30 disabled:opacity-50 text-slate-400 text-xs font-medium rounded-lg transition-all"
+              className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-white/[0.06] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "dismiss" ? "..." : "Dismiss"}
             </button>
             <button
               onClick={() => handleAlertAction("pin")}
               disabled={actionLoading !== null}
-              className="min-h-11 flex-1 py-2 px-2 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/25 hover:border-yellow-500/35 disabled:opacity-50 text-yellow-400 text-xs font-medium rounded-lg transition-all"
+              className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-white/[0.06] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
               {actionLoading === "pin" ? "..." : "Pin"}
             </button>
@@ -567,9 +567,9 @@ export default function VesselDetailPanel({
         const velStale = !hasRealVel && lastVelRef.current != null;
 
         return (
-          <div className="p-5 border-b border-[#1a2235]">
+          <div className="p-5 border-b border-[var(--workspace-border)]">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Edge Node Detection</h3>
+              <h3 className="text-sm font-medium text-slate-200">Edge Node Detection</h3>
               <span className="text-[9px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded">{nodeId}</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -625,9 +625,9 @@ export default function VesselDetailPanel({
           : null;
         if (!streamUrl || streamUrl === "null") return null;
         return (
-          <div className="px-4 py-3 border-b border-[#1a2235]">
+          <div className="px-4 py-3 border-b border-[var(--workspace-border)]">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
+              <h3 className="text-sm font-medium text-slate-200">
                 Live Camera Feed
               </h3>
               <a
@@ -676,97 +676,49 @@ export default function VesselDetailPanel({
         </section>
       )}
 
-      {/* Vessel Identity */}
-      <div className="px-4 py-3 border-b border-[#1a2235]">
-        <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-3">Vessel Identity</h3>
-        <div className="bg-[#111827] rounded-lg border border-[#1a2235] divide-y divide-[#1a2235]">
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-[10px] text-slate-500">Type</span>
-            <span className="text-[11px] font-medium text-slate-200">{vessel.vessel_type}</span>
-          </div>
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-[10px] text-slate-500">Flag</span>
-            <span className="text-[11px] font-medium text-slate-200">{vessel.flag_state}</span>
-          </div>
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-[10px] text-slate-500">Callsign</span>
-            <span className="text-[11px] font-medium font-mono text-slate-200">{vessel.callsign || "\u2014"}</span>
-          </div>
-          {vessel.destination && (
-            <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-[10px] text-slate-500">Destination</span>
-              <span className="text-[11px] font-medium text-slate-200">{vessel.destination}</span>
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          <div className="bg-[#111827] rounded-lg p-2.5 border border-[#1a2235] text-center">
-            <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-0.5">Length</span>
-            <span className="text-[12px] font-bold font-mono text-slate-300">{vessel.length ? `${parseFloat(vessel.length.toFixed(1))}m` : "\u2014"}</span>
-          </div>
-          <div className="bg-[#111827] rounded-lg p-2.5 border border-[#1a2235] text-center">
-            <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-0.5">Beam</span>
-            <span className="text-[12px] font-bold font-mono text-slate-300">{vessel.beam ? `${parseFloat(vessel.beam.toFixed(1))}m` : "\u2014"}</span>
-          </div>
-          <div className="bg-[#111827] rounded-lg p-2.5 border border-[#1a2235] text-center">
-            <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-0.5">Draft</span>
-            <span className="text-[12px] font-bold font-mono text-slate-300">{vessel.draft ? `${parseFloat(vessel.draft.toFixed(1))}m` : "\u2014"}</span>
-          </div>
-        </div>
+      <section className="border-b border-[var(--workspace-border)] px-4 py-4">
+        <h3 className="mb-3 text-sm font-medium text-slate-200">Vessel identity</h3>
+        <dl className="space-y-3 text-sm">
+          <div className="flex justify-between gap-4"><dt className="text-slate-400">Type</dt><dd className="text-right capitalize text-slate-200">{vessel.vessel_type}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-400">Flag</dt><dd className="text-right text-slate-200">{vessel.flag_state}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-slate-400">Callsign</dt><dd className="font-mono text-right text-slate-200">{vessel.callsign || "—"}</dd></div>
+          {vessel.destination && <div className="flex justify-between gap-4"><dt className="text-slate-400">Destination</dt><dd className="max-w-[65%] break-words text-right text-slate-200">{vessel.destination}</dd></div>}
+        </dl>
+        <dl className="mt-4 grid grid-cols-3 gap-3 border-t border-[var(--workspace-border)] pt-4">
+          {[{ label: "Length", value: vessel.length }, { label: "Beam", value: vessel.beam }, { label: "Draft", value: vessel.draft }].map(({ label, value }) => (
+            <div key={label}><dt className="mb-1 text-xs text-slate-400">{label}</dt><dd className="font-mono text-sm text-slate-200">{value ? `${Number(value.toFixed(1))} m` : "—"}</dd></div>
+          ))}
+        </dl>
         {vessel.inspection_deficiencies > 0 && (
-          <div className="mt-2 bg-orange-500/10 rounded-lg p-2.5 border border-orange-500/20 flex items-center gap-2">
-            <span className="text-orange-400 text-[11px]">&#9888;</span>
-            <span className="text-[10px] text-orange-400 font-medium">{vessel.inspection_deficiencies} inspection {vessel.inspection_deficiencies === 1 ? "deficiency" : "deficiencies"}</span>
-          </div>
+          <p className="mt-4 text-orange-300">{vessel.inspection_deficiencies} inspection {vessel.inspection_deficiencies === 1 ? "deficiency" : "deficiencies"}</p>
         )}
-      </div>
+      </section>
 
-      {/* Weather Conditions */}
       {vessel.weather && (
-        <div className="px-4 py-3 border-b border-[#1a2235]">
-          <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-3">Weather Conditions</h3>
+        <section className="border-b border-[var(--workspace-border)] px-4 py-4">
+          <h3 className="mb-3 text-sm font-medium text-slate-200">Weather</h3>
           {(vessel.weather.wind_speed_kt > 25 || vessel.weather.visibility_nm < 2) && (
-            <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
-              <span className="text-amber-400 text-[11px]">&#9888;</span>
-              <p className="text-[10px] text-amber-400 font-medium">
-                Adverse weather — detection thresholds adjusted
-              </p>
-            </div>
+            <p className="mb-3 text-amber-300">Adverse weather. Detection thresholds adjusted.</p>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Wind</span>
-              <span className={`text-sm font-bold font-mono ${vessel.weather.wind_speed_kt > 25 ? "text-amber-400" : "text-slate-200"}`}>
-                {vessel.weather.wind_speed_kt.toFixed(0)} kt
-              </span>
-              <span className="text-[9px] text-slate-500 block mt-0.5">{vessel.weather.wind_direction}</span>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+              <dt className="mb-1 text-xs text-slate-400">Wind</dt>
+              <dd className={`font-mono text-sm ${vessel.weather.wind_speed_kt > 25 ? "text-amber-300" : "text-slate-200"}`}>{vessel.weather.wind_speed_kt.toFixed(0)} kt <span className="text-slate-400">{vessel.weather.wind_direction}</span></dd>
             </div>
-            <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Visibility</span>
-              <span className={`text-sm font-bold font-mono ${vessel.weather.visibility_nm < 2 ? "text-amber-400" : "text-emerald-400"}`}>
-                {vessel.weather.visibility_nm.toFixed(1)} nm
-              </span>
+            <div>
+              <dt className="mb-1 text-xs text-slate-400">Visibility</dt>
+              <dd className={`font-mono text-sm ${vessel.weather.visibility_nm < 2 ? "text-amber-300" : "text-slate-200"}`}>{vessel.weather.visibility_nm.toFixed(1)} nm</dd>
             </div>
-            {vessel.weather.temperature_f != null && (
-              <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-                <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Temperature</span>
-                <span className="text-sm font-bold font-mono text-slate-200">{vessel.weather.temperature_f}°F</span>
-              </div>
-            )}
-            {vessel.weather.description && (
-              <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-                <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Forecast</span>
-                <span className="text-[11px] text-slate-300 leading-snug">{vessel.weather.description}</span>
-              </div>
-            )}
-          </div>
-        </div>
+            {vessel.weather.temperature_f != null && <div><dt className="mb-1 text-xs text-slate-400">Temperature</dt><dd className="font-mono text-sm text-slate-200">{vessel.weather.temperature_f}°F</dd></div>}
+            {vessel.weather.description && <div><dt className="mb-1 text-xs text-slate-400">Conditions</dt><dd className="text-sm text-slate-200">{vessel.weather.description}</dd></div>}
+          </dl>
+        </section>
       )}
 
       {/* Verification Action */}
       {riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3" data-tour="satellite-section">
-          <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Verification</h3>
+          <h3 className="text-sm font-medium text-slate-200 mb-2">Verification</h3>
           {isDemo ? (
             <p className="text-xs leading-relaxed text-slate-400">Live satellite requests are unavailable in this demo. Use the Satellite map layer to explore basemap imagery.</p>
           ) : verification ? (
@@ -795,7 +747,7 @@ export default function VesselDetailPanel({
       {!isDemo && riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3 border-t border-[#1a2235]">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Imagery Browser</h3>
+            <h3 className="text-sm font-medium text-slate-200">Imagery Browser</h3>
             <span className={`text-[9px] font-semibold uppercase px-2 py-0.5 rounded-md border ${
               satelliteInfo?.configured
                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
@@ -967,8 +919,8 @@ export default function VesselDetailPanel({
 
       {/* Operator Notes */}
       {alertId && (
-        <div className="px-4 py-3 border-b border-[#1a2235]">
-          <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Notes</h3>
+        <div className="px-4 py-3 border-b border-[var(--workspace-border)]">
+          <h3 className="text-sm font-medium text-slate-200 mb-2">Notes</h3>
           {savedNotes.length > 0 && (
             <div className="space-y-1.5 mb-3">
               {savedNotes.map((note, i) => (
@@ -999,7 +951,7 @@ export default function VesselDetailPanel({
       {/* Feedback */}
       {alertId && (
         <div className="px-4 py-3">
-          <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Feedback</h3>
+          <h3 className="text-sm font-medium text-slate-200 mb-2">Feedback</h3>
           {feedback ? (
             <div className={`rounded-lg p-3 border text-center text-[11px] font-medium ${
               feedback === "confirmed"

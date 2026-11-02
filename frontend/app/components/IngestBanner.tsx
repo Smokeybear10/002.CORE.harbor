@@ -21,37 +21,34 @@ export default function IngestBanner({ vesselCount, status, isLive, connectionOk
     : !connectionOk
     ? "Live feed unavailable"
     : needsSetup ? "Live AIS isn’t configured"
-    : !status ? "Live feed status is unavailable"
+    : !status ? "Checking feed status"
     : isLive ? "Waiting for vessels" : "Live feed is disconnected";
-  const reason = !connectionOk ? "The AIS service isn’t responding." : "The AIS stream is disconnected.";
   const description = loading
     ? IS_FREE_HOSTED_API
-      ? "The live service sleeps when idle and can take about a minute to wake. Explore the harbor simulation while it connects."
-      : "Checking the AIS connection. You can explore the harbor simulation while you wait."
+      ? "The service sleeps when idle. Startup can take about a minute."
+      : "Waiting for the AIS service to respond."
     : needsSetup
-      ? "A live data connection hasn’t been set up for this deployment. The live demo lets you follow simulated vessel tracks and review alerts."
+      ? "This deployment has no live data connection. The demo is available below."
     : !connectionOk || (status && !isLive)
     ? vesselCount > 0
-      ? `${reason} Positions are from the last connection. Open the live demo to explore a running harbor simulation.`
-      : `${reason} The live demo lets you follow vessel tracks and review alerts in a simulated harbor.`
+      ? "Showing the last received positions. Reconnecting automatically."
+      : "No live positions are available. Reconnecting automatically."
     : !status
-      ? "We can’t confirm whether AIS updates are arriving. Explore the live demo while the connection is checked."
-      : "The AIS connection is open, but no vessel reports have arrived. Explore the live demo while you wait.";
+      ? "The stream status could not be confirmed. Checking again automatically."
+      : "Connected. Waiting for the first vessel reports in this area.";
 
   return (
-    <section role="status" aria-label="Live data status" className="absolute left-3 top-[var(--map-panel-top)] z-20 w-[370px] max-w-[calc(100vw-72px)] rounded-lg border border-white/[0.12] bg-[#101722] p-5 shadow-lg motion-safe:animate-[fade-in-up_200ms_ease-out]">
-      <h2 className="text-base font-medium tracking-tight text-slate-100">{title}</h2>
+    <section role="status" aria-label="Live data status" className="absolute left-3 top-[var(--map-panel-top)] z-20 w-[350px] max-w-[calc(100vw-72px)] rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-4">
+      <h2 className="text-sm font-medium text-slate-100">{title}</h2>
       <p className="mt-2 text-sm leading-relaxed text-slate-400">{description}</p>
       {!loading && !connectionOk && IS_FREE_HOSTED_API && (
-        <p className="mt-2 text-xs leading-relaxed text-slate-500">This service uses free hosting. If it’s asleep, startup can take about a minute.</p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-400">Free hosting sleeps when idle. Allow about a minute to reconnect.</p>
       )}
-      <button type="button" onClick={onDemo} className="mt-5 flex min-h-11 w-full items-center justify-between gap-3 rounded-md bg-slate-200 px-3.5 text-sm font-medium text-slate-900 transition-colors hover:bg-white">
-        Open live demo
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
-      </button>
-      <div className="mt-3 flex items-center justify-center gap-2 text-xs text-slate-400">
-        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-amber-300 motion-safe:animate-pulse" />
-        {needsSetup ? "Simulation available" : loading ? "Checking connection" : isLive ? "Listening for vessel reports" : "Reconnecting automatically"}
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--workspace-border)] pt-3">
+        <button type="button" onClick={onDemo} className="min-h-11 rounded border border-[var(--workspace-border)] bg-white/[0.06] px-3 text-sm font-medium text-slate-200 transition-colors hover:bg-white/[0.1]">
+          Open demo
+        </button>
+        <span className="text-xs text-slate-400">Simulated traffic</span>
       </div>
     </section>
   );
