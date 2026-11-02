@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useRouter } from "next/navigation";
 import type {
   VesselDetail as VesselDetailType,
   VerificationRequest,
@@ -8,7 +9,7 @@ import type {
   SatelliteAcquisition,
   SatelliteInfoResponse,
 } from "@/app/lib/api";
-import { api } from "@/app/lib/api";
+import { useDataSource } from "@/app/lib/data-source";
 import { riskTextClass, riskLevel, RISK_THRESHOLDS } from "@/app/lib/risk";
 
 import type { SatelliteOverlay } from "./MapView";
@@ -182,6 +183,7 @@ export default function VesselDetailPanel({
   closing,
   verificationFocus,
 }: VesselDetailProps) {
+  const { api, isDemo } = useDataSource();
   const [verification, setVerification] = useState<VerificationRequest | null>(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -208,7 +210,7 @@ export default function VesselDetailPanel({
       if (!cancelled) setRiskHistory(data);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [vessel.id]);
+  }, [api, vessel.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -224,7 +226,7 @@ export default function VesselDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     if (!verificationFocus && imageryTarget === "focus") {
@@ -284,15 +286,7 @@ export default function VesselDetailPanel({
     } finally {
       setImageryLoading(false);
     }
-  }, [
-    imageryCloudCover,
-    imageryDateFrom,
-    imageryDateTo,
-    imageryTarget,
-    satelliteInfo?.configured,
-    verificationFocus,
-    vessel.id,
-  ]);
+  }, [api, imageryCloudCover, imageryDateFrom, imageryDateTo, imageryTarget, satelliteInfo?.configured, verificationFocus, vessel.id]);
 
   const handleApplyAcquisition = useCallback((acquisition: SatelliteAcquisition) => {
     const bbox = imagerySearchBBox ?? acquisition.bbox;
@@ -312,7 +306,7 @@ export default function VesselDetailPanel({
       renderToken: acquisition.id ?? acquisition.datetime ?? new Date().toISOString(),
     });
     setActiveAcquisitionKey(acquisition.id ?? acquisition.render_url ?? acquisition.datetime ?? null);
-  }, [imagerySearchBBox, onSatelliteOverlay]);
+  }, [api, imagerySearchBBox, onSatelliteOverlay]);
 
   const handleClearImageryOverlay = useCallback(() => {
     onSatelliteOverlay?.(null);
@@ -333,24 +327,20 @@ export default function VesselDetailPanel({
     }).finally(() => {
       setExportLoading(false);
     });
-  }, [vessel.id, showReport]);
+  }, [showReport, api, vessel.id]);
 
 
   // Alert action state
-  const [alertStatus, setAlertStatus] = useState<string | null>(null);
+  const [alertStatus, setAlertStatus] = useState<string | null>(vessel.alert_status ?? null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Operator notes state
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
-  const [savedNotes, setSavedNotes] = useState<string[]>(
-    (vessel as unknown as Record<string, unknown>).operator_notes
-      ? ((vessel as unknown as Record<string, unknown>).operator_notes as string[])
-      : []
-  );
+  const [savedNotes, setSavedNotes] = useState<string[]>(vessel.operator_notes ?? []);
 
   // Feedback state
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(vessel.alert_feedback ?? null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
   const handleAlertAction = useCallback(async (action: string) => {
@@ -365,7 +355,7 @@ export default function VesselDetailPanel({
     } finally {
       setActionLoading(null);
     }
-  }, [alertId, onAlertAction]);
+  }, [alertId, api, onAlertAction]);
 
   const handleSaveNote = useCallback(async () => {
     if (!alertId || !noteText.trim()) return;
@@ -379,7 +369,7 @@ export default function VesselDetailPanel({
     } finally {
       setNoteSaving(false);
     }
-  }, [alertId, noteText]);
+  }, [alertId, api, noteText]);
 
   const handleFeedback = useCallback(async (value: string) => {
     if (!alertId) return;
@@ -392,7 +382,7 @@ export default function VesselDetailPanel({
     } finally {
       setFeedbackLoading(false);
     }
-  }, [alertId]);
+  }, [alertId, api]);
 
   const handleVerify = async () => {
     setVerifyLoading(true);
@@ -413,7 +403,7 @@ export default function VesselDetailPanel({
   if (showReport && exportReport) {
     return (
       <div
-        className="absolute top-16 bottom-4 right-3 w-[380px] z-40 rounded-2xl bg-[rgba(14,18,32,0.92)] backdrop-blur-xl border border-white/[0.14] flex flex-col overflow-y-auto shadow-[0_20px_60px_rgba(0,0,0,0.55)] scroll-thin"
+        className="workspace-panel absolute top-[max(var(--map-panel-top),32dvh)] sm:top-[var(--map-panel-top)] bottom-[var(--map-panel-bottom)] right-3 w-[400px] max-w-[calc(100vw-24px)] z-40 flex flex-col overflow-y-auto shadow-xl scroll-thin"
         style={{ animation: closing ? "slide-out-right 0.2s ease-in forwards" : "slide-in-right 0.25s ease-out" }}
       >
         <ReportView report={exportReport} onBack={() => setShowReport(false)} />
@@ -424,14 +414,14 @@ export default function VesselDetailPanel({
   return (
     <div
       data-tour="vessel-detail"
-      className="absolute top-16 bottom-4 right-3 w-[380px] z-40 rounded-2xl bg-[rgba(14,18,32,0.92)] backdrop-blur-xl border border-white/[0.14] flex flex-col overflow-y-auto shadow-[0_20px_60px_rgba(0,0,0,0.55)] scroll-thin"
+      className="workspace-panel absolute top-[max(var(--map-panel-top),32dvh)] sm:top-[var(--map-panel-top)] bottom-[var(--map-panel-bottom)] right-3 w-[400px] max-w-[calc(100vw-24px)] z-40 flex flex-col overflow-y-auto shadow-xl scroll-thin"
       style={{ animation: closing ? "slide-out-right 0.2s ease-in forwards" : "slide-in-right 0.25s ease-out" }}
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[#1a2235]">
-        <div className="flex items-start justify-between">
+      <div className="sticky top-0 z-10 border-b border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-4 py-3">
+        <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0 pr-3">
-            <h2 className="text-base font-semibold text-slate-100 truncate">{vessel.name}</h2>
+            <h2 className="text-base font-semibold leading-snug text-slate-100 break-words">{vessel.name}</h2>
             <span className="text-[11px] text-slate-500 font-mono">
               MMSI {vessel.mmsi}{vessel.imo ? ` / IMO ${vessel.imo}` : ""}
             </span>
@@ -439,14 +429,16 @@ export default function VesselDetailPanel({
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={handleExportReport}
+              aria-label="View vessel report"
               disabled={exportLoading}
-              className={`text-[10px] uppercase tracking-wider transition-colors disabled:opacity-50 ${showReport ? "text-blue-400" : "text-slate-500 hover:text-blue-400"}`}
+              className={`min-h-11 px-2 text-xs transition-colors disabled:opacity-50 ${showReport ? "text-sky-300" : "text-slate-400 hover:text-slate-100"}`}
             >
-              {exportLoading ? "..." : "More Info"}
+              {exportLoading ? "Loading…" : "Report"}
             </button>
             <button
               onClick={onClose}
-              className="w-7 h-7 rounded-lg bg-[#111827] border border-[#1a2235] flex items-center justify-center text-slate-500 hover:text-slate-300 hover:border-slate-600 transition-colors"
+              aria-label="Close vessel details"
+              className="w-11 h-11 rounded-lg bg-[#111827] border border-[#1a2235] flex items-center justify-center text-slate-400 hover:text-slate-300 hover:border-slate-600 transition-colors"
           >
             <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -492,11 +484,63 @@ export default function VesselDetailPanel({
             </div>
           </div>
         </div>
+      {/* Alert Actions */}
+      {alertId && (
+        <div className="mt-4 border-t border-[var(--workspace-border)] pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Review alert</h3>
+            {alertStatus && (
+              <span className="text-[9px] font-semibold uppercase px-2 py-0.5 rounded-md border bg-blue-500/10 text-blue-400 border-blue-500/25">
+                {alertStatus}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleAlertAction("acknowledge")}
+              disabled={actionLoading !== null}
+              className="min-h-11 flex-1 py-2 px-2 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:opacity-50 text-blue-400 text-xs font-medium rounded-lg transition-all"
+            >
+              {actionLoading === "acknowledge" ? "..." : "Acknowledge"}
+            </button>
+            <button
+              onClick={() => handleAlertAction("dismiss")}
+              disabled={actionLoading !== null}
+              className="min-h-11 flex-1 py-2 px-2 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/20 hover:border-slate-500/30 disabled:opacity-50 text-slate-400 text-xs font-medium rounded-lg transition-all"
+            >
+              {actionLoading === "dismiss" ? "..." : "Dismiss"}
+            </button>
+            <button
+              onClick={() => handleAlertAction("pin")}
+              disabled={actionLoading !== null}
+              className="min-h-11 flex-1 py-2 px-2 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/25 hover:border-yellow-500/35 disabled:opacity-50 text-yellow-400 text-xs font-medium rounded-lg transition-all"
+            >
+              {actionLoading === "pin" ? "..." : "Pin"}
+            </button>
+          </div>
+        </div>
+      )}
+
         {riskHistory.length >= 2 && <RiskSparkline data={riskHistory} />}
         {vessel.explanation && (
-          <p className="text-[11px] text-slate-400 leading-relaxed mt-3">{vessel.explanation}</p>
+          <details className="group mt-3 border-t border-[var(--workspace-border)]">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-[13px] font-medium text-slate-200 [&::-webkit-details-marker]:hidden">Assessment<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-slate-400 group-open:rotate-180"><path d="m6 9 6 6 6-6" /></svg></summary>
+            <p className="pb-2 text-sm leading-relaxed text-slate-300">{vessel.explanation}</p>
+          </details>
         )}
       </div>
+
+      {vessel.latest_position && (
+        <section className="border-b border-[var(--workspace-border)] px-4 py-4">
+          <h3 className="mb-3 text-sm font-medium text-slate-200">Position</h3>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+            <div><dt className="mb-1 text-xs text-slate-400">Latitude</dt><dd className="font-mono text-sm text-slate-200">{vessel.latest_position.latitude.toFixed(5)}°</dd></div>
+            <div><dt className="mb-1 text-xs text-slate-400">Longitude</dt><dd className="font-mono text-sm text-slate-200">{vessel.latest_position.longitude.toFixed(5)}°</dd></div>
+            <div><dt className="mb-1 text-xs text-slate-400">Speed</dt><dd className="font-mono text-sm text-slate-200">{vessel.latest_position.speed_over_ground != null ? `${vessel.latest_position.speed_over_ground.toFixed(1)} kt` : "—"}</dd></div>
+            <div><dt className="mb-1 text-xs text-slate-400">Course</dt><dd className="font-mono text-sm text-slate-200">{vessel.latest_position.course_over_ground != null ? `${vessel.latest_position.course_over_ground.toFixed(0)}°` : "—"}</dd></div>
+          </dl>
+        </section>
+      )}
 
       {/* Edge Node Detection Stats */}
       {(() => {
@@ -608,71 +652,28 @@ export default function VesselDetailPanel({
         );
       })()}
 
-      {/* Anomaly Signals */}
       {vessel.anomaly_signals.length > 0 && (
-        <div className="px-4 py-3 border-b border-[#1a2235]">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
-              Anomaly Signals
-            </h3>
-            <span className="text-[9px] font-mono text-slate-600 bg-[#111827] px-2 py-0.5 rounded">
-              {vessel.anomaly_signals.length} detected
-            </span>
+        <section className="border-b border-[var(--workspace-border)] px-4 py-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-medium text-slate-200">Signals</h3>
+            <span className="text-xs text-slate-400">{vessel.anomaly_signals.length} detected</span>
           </div>
-          <div className="space-y-2">
+          <div className="divide-y divide-white/[0.07]">
             {vessel.anomaly_signals.map((signal, i) => {
-              const sev = severityLabel(signal.severity);
-              const sevPct = Math.min(signal.severity * 100, 100);
-              const barColor = signal.severity >= 0.55 ? "bg-red-400" : signal.severity >= 0.35 ? "bg-orange-400" : signal.severity >= 0.2 ? "bg-yellow-400" : "bg-green-400";
+              const severity = severityLabel(signal.severity);
               return (
-                <div key={i} className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-medium text-slate-200">
-                      {signalLabel(signal.anomaly_type)}
-                    </span>
-                    <span className={`text-[9px] font-bold uppercase ${sev.color}`}>
-                      {sev.text}
-                    </span>
-                  </div>
-                  <div className="w-full bg-[#0d1320] rounded-full h-1 mb-2">
-                    <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${sevPct}%` }} />
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">{signal.description}</p>
-                </div>
+                <details key={i} className="group">
+                  <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 py-2 text-[13px] [&::-webkit-details-marker]:hidden">
+                    <span className="flex-1 font-medium text-slate-200">{signalLabel(signal.anomaly_type)}</span>
+                    <span className={`text-xs ${severity.color}`}>{severity.text.toLowerCase()}</span>
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-slate-400 transition-transform group-open:rotate-180"><path d="m6 9 6 6 6-6" /></svg>
+                  </summary>
+                  <p className="pb-4 text-slate-300">{signal.description}</p>
+                </details>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Position & Kinematics */}
-      {vessel.latest_position && (
-        <div className="px-4 py-3 border-b border-[#1a2235]">
-          <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-3">Position & Kinematics</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Latitude</span>
-              <span className="text-sm font-bold font-mono text-slate-200">{vessel.latest_position.latitude.toFixed(5)}</span>
-            </div>
-            <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Longitude</span>
-              <span className="text-sm font-bold font-mono text-slate-200">{vessel.latest_position.longitude.toFixed(5)}</span>
-            </div>
-            <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Speed</span>
-              <span className="text-sm font-bold font-mono text-blue-400">
-                {vessel.latest_position.speed_over_ground != null ? `${vessel.latest_position.speed_over_ground.toFixed(1)}` : "\u2014"}
-              </span>
-              {vessel.latest_position.speed_over_ground != null && <span className="text-[9px] text-slate-600 ml-1">kt</span>}
-            </div>
-            <div className="bg-[#111827] rounded-lg p-3 border border-[#1a2235]">
-              <span className="text-[9px] text-slate-600 uppercase tracking-wider block mb-1">Course</span>
-              <span className="text-sm font-bold font-mono text-blue-400">
-                {vessel.latest_position.course_over_ground != null ? `${vessel.latest_position.course_over_ground.toFixed(0)}\u00B0` : "\u2014"}
-              </span>
-            </div>
-          </div>
-        </div>
+        </section>
       )}
 
       {/* Vessel Identity */}
@@ -766,7 +767,9 @@ export default function VesselDetailPanel({
       {riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3" data-tour="satellite-section">
           <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Verification</h3>
-          {verification ? (
+          {isDemo ? (
+            <p className="text-xs leading-relaxed text-slate-400">Live satellite requests are unavailable in this demo. Use the Satellite map layer to explore basemap imagery.</p>
+          ) : verification ? (
             <SatelliteVerificationResult
               verification={verification}
               vesselPosition={vessel.latest_position}
@@ -789,7 +792,7 @@ export default function VesselDetailPanel({
         </div>
       )}
 
-      {riskScore >= RISK_THRESHOLDS.monitor && (
+      {!isDemo && riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3 border-t border-[#1a2235]">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Imagery Browser</h3>
@@ -962,43 +965,6 @@ export default function VesselDetailPanel({
         </div>
       )}
 
-      {/* Alert Actions */}
-      {alertId && (
-        <div className="px-4 py-3 border-b border-[#1a2235]">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Actions</h3>
-            {alertStatus && (
-              <span className="text-[9px] font-semibold uppercase px-2 py-0.5 rounded-md border bg-blue-500/10 text-blue-400 border-blue-500/25">
-                {alertStatus}
-              </span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleAlertAction("acknowledge")}
-              disabled={actionLoading !== null}
-              className="flex-1 py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:opacity-50 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
-            >
-              {actionLoading === "acknowledge" ? "..." : "Acknowledge"}
-            </button>
-            <button
-              onClick={() => handleAlertAction("dismiss")}
-              disabled={actionLoading !== null}
-              className="flex-1 py-2 px-3 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/20 hover:border-slate-500/30 disabled:opacity-50 text-slate-400 text-[11px] font-medium rounded-lg transition-all"
-            >
-              {actionLoading === "dismiss" ? "..." : "Dismiss"}
-            </button>
-            <button
-              onClick={() => handleAlertAction("pin")}
-              disabled={actionLoading !== null}
-              className="flex-1 py-2 px-3 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/25 hover:border-yellow-500/35 disabled:opacity-50 text-yellow-400 text-[11px] font-medium rounded-lg transition-all"
-            >
-              {actionLoading === "pin" ? "..." : "Pin"}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Operator Notes */}
       {alertId && (
         <div className="px-4 py-3 border-b border-[#1a2235]">
@@ -1015,7 +981,8 @@ export default function VesselDetailPanel({
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Add a note..."
+            aria-label="Operator note"
+            placeholder="Add a note…"
             rows={2}
             className="w-full bg-[#111827] border border-[#1a2235] rounded-lg p-2.5 text-[11px] text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-slate-600 transition-colors"
           />
@@ -1035,16 +1002,16 @@ export default function VesselDetailPanel({
           <h3 className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Feedback</h3>
           {feedback ? (
             <div className={`rounded-lg p-3 border text-center text-[11px] font-medium ${
-              feedback === "confirmed_threat"
+              feedback === "confirmed"
                 ? "bg-red-500/10 text-red-400 border-red-500/25"
                 : "bg-slate-500/10 text-slate-400 border-slate-500/20"
             }`}>
-              Marked as: {feedback === "confirmed_threat" ? "Confirmed Threat" : "False Positive"}
+              Marked as: {feedback === "confirmed" ? "Confirmed Threat" : "False Positive"}
             </div>
           ) : (
             <div className="flex gap-2">
               <button
-                onClick={() => handleFeedback("confirmed_threat")}
+                onClick={() => handleFeedback("confirmed")}
                 disabled={feedbackLoading}
                 className="flex-1 py-2 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 hover:border-red-500/35 disabled:opacity-50 text-red-400 text-[11px] font-medium rounded-lg transition-all"
               >
@@ -1068,6 +1035,8 @@ export default function VesselDetailPanel({
 
 
 function ReportView({ report, onBack }: { report: Record<string, unknown>; onBack: () => void }) {
+  const router = useRouter();
+  const { mode, isDemo } = useDataSource();
   const trail = report.position_trail as Record<string, unknown>[];
   const audit = report.alert_audit_trail as Record<string, unknown>[];
   const notes = report.operator_notes ? String(report.operator_notes) : null;
@@ -1089,7 +1058,11 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
         <button
           onClick={() => {
             const v = report.vessel as Record<string, unknown> | undefined;
-            if (v?.id) window.open(`/report?vesselId=${v.id}`, "_blank");
+            if (v?.id) {
+              const url = `/report?vesselId=${encodeURIComponent(String(v.id))}&mode=${mode}`;
+              if (isDemo) router.push(url);
+              else window.open(url, "_blank");
+            }
           }}
           className="flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-violet-300 transition-colors uppercase tracking-[0.14em] font-medium shrink-0"
         >
@@ -1104,6 +1077,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
 
       {/* Report Body */}
       <div className="px-4 py-4 space-y-4">
+        {isDemo && <p className="text-xs text-slate-400">Demo report · Simulated vessel data</p>}
         {/* Position Trail */}
         {trail?.length > 0 && (
           <Section title={`Position Trail · ${trail.length} points`}>
@@ -1157,7 +1131,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
 
         {/* Footer */}
         <div className="text-center text-[9px] font-mono tracking-[0.18em] uppercase text-slate-600 pt-3 pb-2 border-t border-white/[0.06]">
-          HarborOS · Confidential
+          HarborOS · {isDemo ? "Demo report" : "Confidential"}
         </div>
       </div>
     </>

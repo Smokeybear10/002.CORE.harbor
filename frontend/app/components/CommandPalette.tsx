@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { Alert, Vessel, Region } from "@/app/lib/api";
+import { riskTextClass } from "@/app/lib/risk";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -11,6 +12,7 @@ interface CommandPaletteProps {
   regions: Record<string, Region>;
   activeRegion: string | null;
   onSelectAlert: (alert: Alert) => void;
+  onSelectVessel: (id: string) => void;
   onSelectRegion: (key: string | null) => void;
   onToggleAnalytics: () => void;
 }
@@ -22,18 +24,18 @@ type Result =
   | { kind: "action"; label: string; run: () => void; shortcut?: string };
 
 export default function CommandPalette({
-  open, onClose, alerts, vessels, regions, activeRegion, onSelectAlert, onSelectRegion, onToggleAnalytics,
+  open, onClose, alerts, vessels, regions, activeRegion, onSelectAlert, onSelectVessel, onSelectRegion, onToggleAnalytics,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  const panelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (open) {
-      setQuery("");
-      setSelected(0);
-      setTimeout(() => inputRef.current?.focus(), 20);
-    }
+    if (!open) return;
+    const previous = document.activeElement;
+    inputRef.current?.focus();
+    return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, [open]);
 
   const results = useMemo<Result[]>(() => {
@@ -85,35 +87,36 @@ export default function CommandPalette({
     return out.slice(0, 40);
   }, [query, alerts, vessels, regions, activeRegion, onSelectRegion, onToggleAnalytics]);
 
-  useEffect(() => {
-    if (selected >= results.length) setSelected(Math.max(0, results.length - 1));
-  }, [results.length, selected]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-      if (e.key === "ArrowDown") { e.preventDefault(); setSelected((s) => Math.min(s + 1, results.length - 1)); }
-      if (e.key === "ArrowUp") { e.preventDefault(); setSelected((s) => Math.max(s - 1, 0)); }
-      if (e.key === "Enter") { e.preventDefault(); runResult(results[selected]); }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const selectedIndex = Math.min(selected, Math.max(0, results.length - 1));
 
   function runResult(r: Result | undefined) {
     if (!r) return;
     if (r.kind === "region") onSelectRegion(r.key);
     if (r.kind === "alert") onSelectAlert(r.alert);
-    if (r.kind === "vessel") {
-      // Open vessel detail via the alert path (no dedicated action, find alert or select directly)
-      // Simplest: just close and let user click on map. For now: find an alert for this vessel
-      const a = alerts.find((al) => al.vessel_id === r.vessel.id);
-      if (a) onSelectAlert(a);
-    }
+    if (r.kind === "vessel") onSelectVessel(r.vessel.id);
     if (r.kind === "action") r.run();
     onClose();
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Tab") {
+        const controls = panelRef.current?.querySelectorAll<HTMLElement>('input, button, [tabindex="0"]');
+        const first = controls?.[0];
+        const last = controls?.[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+      if (e.key === "ArrowDown") { e.preventDefault(); setSelected(Math.min(selectedIndex + 1, Math.max(0, results.length - 1))); }
+      if (e.key === "ArrowUp") { e.preventDefault(); setSelected(Math.max(selectedIndex - 1, 0)); }
+      if (e.key === "Enter") { e.preventDefault(); runResult(results[selectedIndex]); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  });
+
 
   if (!open) return null;
 
@@ -121,7 +124,11 @@ export default function CommandPalette({
     <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[12vh] px-4" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-[640px] rounded-2xl bg-[rgba(18,22,36,0.96)] backdrop-blur-2xl border border-white/[0.14] shadow-[0_32px_80px_rgba(0,0,0,0.55)] overflow-hidden"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search vessels and commands"
+        className="workspace-panel relative w-full max-w-[640px] overflow-hidden shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-4 h-12 border-b border-white/[0.06]">
@@ -132,20 +139,21 @@ export default function CommandPalette({
           <input
             ref={inputRef}
             type="text"
+            aria-label="Search vessels and commands"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSelected(0); }}
-            placeholder="Search vessels, switch regions, run actions..."
-            className="flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder-slate-500"
+            placeholder="Search by vessel name or MMSI…"
+            className="min-w-0 flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder-slate-400"
           />
           <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-slate-400">esc</kbd>
         </div>
 
         <div className="max-h-[min(440px,60vh)] overflow-y-auto p-1.5">
           {results.length === 0 && (
-            <div className="px-4 py-10 text-center text-[13px] text-slate-500">No matches for "{query}"</div>
+            <div className="px-4 py-10 text-center text-[13px] text-slate-500">No matches for “{query}”</div>
           )}
           {results.map((r, i) => (
-            <ResultRow key={rowKey(r, i)} result={r} selected={i === selected} onHover={() => setSelected(i)} onRun={() => runResult(r)} />
+            <ResultRow key={rowKey(r, i)} result={r} selected={i === selectedIndex} onHover={() => setSelected(i)} onRun={() => runResult(r)} />
           ))}
         </div>
 
@@ -188,11 +196,7 @@ function ResultRow({ result, selected, onHover, onRun }: { result: Result; selec
   }
 
   if (result.kind === "alert") {
-    const tierColor = result.alert.recommended_action === "escalate"
-      ? "text-red-300"
-      : result.alert.recommended_action === "verify"
-      ? "text-amber-300"
-      : "text-cyan-300";
+    const tierColor = riskTextClass(result.alert.risk_score);
     return (
       <button className={base} onMouseEnter={onHover} onClick={onRun}>
         <Kind icon="alert" />

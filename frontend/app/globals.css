@@ -179,7 +179,43 @@ body > *:not(.ambient-glow) {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-/* MapLibre overrides for Sentinel */
+.harbor-workspace {
+  overflow: clip;
+  --workspace-surface: #111923;
+  --workspace-border: rgba(255, 255, 255, 0.11);
+  --map-panel-top: 120px;
+  --map-panel-bottom: 16px;
+  --map-tools-bottom: 36px;
+  --map-alert-bottom: 36px;
+  --playback-bottom: max(28px, calc(env(safe-area-inset-bottom) + 12px));
+}
+.harbor-workspace .maplibregl-map { overflow: clip; }
+.harbor-workspace[data-demo="true"] {
+  --map-panel-bottom: calc(var(--playback-bottom) + 82px);
+  --map-tools-bottom: calc(var(--playback-bottom) + 82px);
+  --map-alert-bottom: calc(var(--playback-bottom) + 82px);
+}
+@media (min-width: 640px) {
+  .harbor-workspace { --map-panel-top: 76px; }
+  .harbor-workspace[data-demo="true"] { --map-tools-bottom: 36px; }
+}
+.workspace-panel {
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-border);
+  border-radius: 8px;
+}
+.workspace-panel :is(button, a) { min-height: 44px; }
+.workspace-panel :is(.text-slate-500, .text-slate-600) { color: #94a3b8; }
+.workspace-panel :is(.text-\[8px\], .text-\[9px\], .text-\[9\.5px\], .text-\[10px\], .text-\[10\.5px\]) {
+  font-size: 12px;
+}
+.workspace-panel p { font-size: 13px; line-height: 1.65; }
+.workspace-panel > div { flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel { animation: none !important; }
+}
+
+/* Map controls */
 .maplibregl-popup-content {
   background: rgba(18, 22, 36, 0.92) !important;
   color: #e7ebf3 !important;
@@ -195,20 +231,22 @@ body > *:not(.ambient-glow) {
 }
 
 .maplibregl-ctrl-top-right {
-  top: 56px !important;
+  top: calc(var(--map-panel-top, 76px) - 10px) !important;
 }
 
+
 .maplibregl-ctrl-group {
-  background: rgba(18, 22, 36, 0.85) !important;
+  background: var(--workspace-surface, #111923) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: 10px !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
-  backdrop-filter: blur(16px) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
 }
 
 .maplibregl-ctrl-group button {
-  filter: invert(0.9);
+  width: 44px !important;
+  height: 44px !important;
 }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.85); }
 
 .maplibregl-ctrl-group button + button {
   border-top-color: rgba(255, 255, 255, 0.08) !important;

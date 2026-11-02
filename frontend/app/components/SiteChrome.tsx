@@ -3,31 +3,31 @@ import LaunchButton from "@/app/components/LaunchButton";
 import Logomark from "@/app/components/Logomark";
 
 const NAV: { label: string; href: string }[] = [
-  { label: "Home", href: "/" },
+  { label: "Map", href: "/" },
   { label: "Docs", href: "/docs" },
   { label: "About", href: "/about" },
 ];
 
-export function SiteNav({ active }: { active?: string }) {
+export function SiteNav({ active, mapHref = "/" }: { active?: string; mapHref?: string }) {
   return (
-    <nav className="max-w-[1400px] mx-auto flex items-center px-8 py-4 gap-8">
-      <Link href="/" className="flex items-center gap-2.5 text-slate-200">
+    <nav className="max-w-[1400px] mx-auto flex items-center px-4 sm:px-8 py-3 gap-3">
+      <Link href={mapHref} className="flex min-h-11 items-center gap-2.5 text-slate-200">
         <Logomark size={22} />
         <span className="text-[14px] font-semibold tracking-tight text-slate-100">HarborOS</span>
       </Link>
-      <div className="ml-auto flex items-center gap-6">
+      <div className="ml-auto flex items-center gap-3 sm:gap-6">
         {NAV.map((item) => (
           <Link
             key={item.href}
-            href={item.href}
-            className={`text-[13px] transition-colors ${
+            href={item.label === "Map" ? mapHref : item.href}
+            className={`inline-flex min-h-11 items-center text-[13px] transition-colors ${
               active === item.label ? "text-slate-100" : "text-slate-400 hover:text-slate-100"
             }`}
           >
             {item.label}
           </Link>
         ))}
-        <LaunchButton className="btn-primary text-[12.5px] px-3.5 py-1.5 rounded-md">
+        <LaunchButton href={mapHref} className="btn-primary hidden sm:inline-flex min-h-11 items-center text-[12.5px] px-3.5 py-1.5 rounded-md">
           Launch
         </LaunchButton>
       </div>
@@ -38,8 +38,8 @@ export function SiteNav({ active }: { active?: string }) {
 export function SiteFooter() {
   return (
     <footer className="max-w-[1400px] mx-auto px-8 py-8 border-t border-white/[0.06] flex flex-wrap justify-between gap-4 text-[12px] text-slate-500">
-      <div>HarborOS · v2.4.1 · AIS + SAR fusion for maritime operators</div>
-      <div className="font-mono">© 2026 · Los Angeles, CA</div>
+      <div>HarborOS · Maritime monitoring</div>
+      <div className="font-mono">Built by Thomas Ou</div>
     </footer>
   );
 }

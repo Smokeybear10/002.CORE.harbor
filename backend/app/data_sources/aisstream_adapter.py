@@ -149,7 +149,15 @@ class AISStreamClient:
         region_keys: list[str] | None = None,
     ):
         self.api_key = api_key or os.environ.get("AISSTREAM_API_KEY", "")
-        self.region_keys = region_keys or DEFAULT_REGIONS
+        if region_keys is None:
+            configured_regions = os.environ.get("HARBOROS_AIS_REGIONS")
+            region_keys = (
+                [key.strip() for key in configured_regions.split(",") if key.strip()]
+                if configured_regions is not None else DEFAULT_REGIONS
+            )
+        if not region_keys or any(key not in REGIONS for key in region_keys):
+            raise ValueError("HARBOROS_AIS_REGIONS must contain valid monitoring region keys")
+        self.region_keys = list(dict.fromkeys(region_keys))
         # Build bounding boxes from selected regions
         self.active_regions = {k: REGIONS[k] for k in self.region_keys if k in REGIONS}
         self.bounding_boxes = [r["bbox"] for r in self.active_regions.values()]
@@ -204,7 +212,7 @@ class AISStreamClient:
         while self._running:
             try:
                 logger.info("Connecting to AISStream WebSocket...")
-                async with websockets.connect(AISSTREAM_WS_URL) as ws:
+                async with websockets.connect(AISSTREAM_WS_URL, compression="deflate") as ws:
                     self._ws = ws
                     self.stats["connected_since"] = datetime.now(timezone.utc).isoformat()
                     retry_delay = 1  # Reset on successful connection

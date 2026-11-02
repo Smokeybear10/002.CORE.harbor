@@ -9,8 +9,9 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
-from app.database import init_db, reclaim_free_pages
+from app.database import engine, init_db, reclaim_free_pages
 from app.api.routes import router
 
 logging.basicConfig(
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
         logging.getLogger("harboros").info("Live AIS ingestion started")
     else:
         logging.getLogger("harboros").info(
-            "No AISSTREAM_API_KEY set — running with seeded data only. "
+            "No AISSTREAM_API_KEY set — live ingestion is disabled. "
             "Set the env var and use POST /api/ingestion/start to enable live data."
         )
 
@@ -88,6 +89,13 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+
+
+@app.get("/healthz")
+def health():
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+    return {"status": "ok"}
 
 
 @app.get("/")

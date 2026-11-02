@@ -1,20 +1,22 @@
 "use client";
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import MapView from "@/app/components/MapView";
 import VesselDetailPanel from "@/app/components/VesselDetail";
 import FeatureTour from "@/app/components/FeatureTour";
 import RiskDistributionPanel from "@/app/components/RiskDistribution";
 import Toast from "@/app/components/Toast";
-import FloatingChrome from "@/app/components/FloatingChrome";
+import FloatingChrome, { DemoPlayback } from "@/app/components/FloatingChrome";
 import AlertPeeks from "@/app/components/AlertPeeks";
 import CommandPalette from "@/app/components/CommandPalette";
 import IngestBanner from "@/app/components/IngestBanner";
 import ShortcutOverlay from "@/app/components/ShortcutOverlay";
 import type { ToastItem } from "@/app/components/Toast";
 import type { SatelliteOverlay } from "@/app/components/MapView";
-import { api } from "@/app/lib/api";
+import { getDataMode, type DataMode } from "@/app/lib/api";
+import { DataSourceProvider, useDataSource } from "@/app/lib/data-source";
+import { DEMO_DURATION_MS, DEMO_PLAYBACK_RATE, getDemoElapsed, setDemoElapsed } from "@/app/lib/demo-api";
 import type { Vessel, VesselDetail, Alert, Geofence, IngestionStatus, Region, RiskDistribution } from "@/app/lib/api";
 
 const REFRESH_INTERVAL_MS = 5000;
@@ -50,13 +52,31 @@ function shallowAlertListEqual(a: Alert[], b: Alert[]): boolean {
 
 export default function DashboardPage() {
   return (
-    <Suspense>
-      <Dashboard />
+    <Suspense fallback={<LoadingMap />}>
+      <DashboardSession />
     </Suspense>
   );
 }
 
-function Dashboard() {
+function DashboardSession() {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const mode = getDataMode(searchParams.get("mode"));
+  const changeMode = (nextMode: DataMode) => {
+    const query = new URLSearchParams(searchParams.toString());
+    query.set("mode", nextMode);
+    query.delete("tour");
+    window.history.replaceState(null, "", `${pathname}?${query}`);
+  };
+  return (
+    <DataSourceProvider key={mode} mode={mode}>
+      <Dashboard onModeChange={changeMode} />
+    </DataSourceProvider>
+  );
+}
+
+function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void }) {
+  const { api, isDemo } = useDataSource();
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertsTotal, setAlertsTotal] = useState(0);
@@ -81,6 +101,9 @@ function Dashboard() {
   const [connectionOk, setConnectionOk] = useState(true);
   const [featureTourActive, setFeatureTourActive] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [demoElapsed, setReplayElapsed] = useState(getDemoElapsed);
+  const [demoPaused, setDemoPaused] = useState(false);
+  const selectedVesselId = selectedVessel?.id;
   const searchParams = useSearchParams();
   const autoTour = searchParams.get("tour") === "1";
   const liveVesselsRef = useRef<Vessel[]>([]);
@@ -88,7 +111,7 @@ function Dashboard() {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analyticsCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showAnalyticsRef = useRef(showAnalytics);
-  showAnalyticsRef.current = showAnalytics;
+  useEffect(() => { showAnalyticsRef.current = showAnalytics; }, [showAnalytics]);
 
   const showToast = useCallback((message: string, type: ToastItem["type"] = "info") => {
     const id = `${Date.now()}-${Math.random()}`;
@@ -109,11 +132,12 @@ function Dashboard() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [v, a, g, r] = await Promise.all([
+        const [v, a, g, r, status] = await Promise.all([
           api.getVessels("la_harbor"),
           api.getAlerts("active", "la_harbor"),
           api.getGeofences(),
           api.getRegions(),
+          api.getIngestionStatus().catch(() => null),
         ]);
         setVessels(v.items);
         liveVesselsRef.current = v.items;
@@ -121,13 +145,9 @@ function Dashboard() {
         setAlertsTotal(a.total);
         setGeofences(g);
         setRegions(r);
+        setIngestionStatus(status);
         setLoading(false);
         setConnectionOk(true);
-
-        try {
-          const status = await api.getIngestionStatus();
-          setIngestionStatus(status);
-        } catch {}
       } catch {
         // Don't nuke the UI — let the refresh loop retry. Show reconnecting pill instead.
         setConnectionOk(false);
@@ -135,7 +155,50 @@ function Dashboard() {
       }
     }
     loadData();
-  }, []);
+  }, [api]);
+
+  useEffect(() => {
+    if (!isDemo) return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const respectMotionPreference = () => { if (preference.matches) setDemoPaused(true); };
+    respectMotionPreference();
+    preference.addEventListener("change", respectMotionPreference);
+    return () => preference.removeEventListener("change", respectMotionPreference);
+  }, [isDemo]);
+
+  useEffect(() => {
+    if (!isDemo || loading || demoPaused) return;
+    let previous = performance.now();
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      const now = performance.now();
+      const delta = now - previous;
+      previous = now;
+      if (document.visibilityState === "hidden") return;
+      setDemoElapsed(getDemoElapsed() + Math.min(delta, 500) * DEMO_PLAYBACK_RATE);
+      setReplayElapsed(getDemoElapsed());
+      const [next, detail] = await Promise.all([
+        api.getVessels(activeRegion || undefined),
+        selectedVesselId ? api.getVesselDetail(selectedVesselId) : null,
+      ]);
+      if (cancelled) return;
+      setVessels(next.items);
+      liveVesselsRef.current = next.items;
+      if (detail) setSelectedVessel((selected) => selected?.id === detail.id ? detail : selected);
+      if (getDemoElapsed() >= DEMO_DURATION_MS) setDemoPaused(true);
+    }, 250);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [activeRegion, api, demoPaused, isDemo, loading, selectedVesselId]);
+
+  const toggleDemoPlayback = () => {
+    if (getDemoElapsed() >= DEMO_DURATION_MS) {
+      setDemoElapsed(0);
+      setReplayElapsed(0);
+      setDemoPaused(false);
+      return;
+    }
+    setDemoPaused((paused) => !paused);
+  };
 
   // Auto-start feature tour from URL param
   useEffect(() => {
@@ -148,10 +211,15 @@ function Dashboard() {
   // Auto-refresh — pauses when tab hidden, skips state updates when payload is unchanged.
   useEffect(() => {
     if (refreshTimer.current) clearInterval(refreshTimer.current);
+    if (isDemo || loading) return;
+    let cancelled = false;
+    let refreshing = false;
 
     const tick = async () => {
+      if (refreshing) return;
       // Don't hammer the API when the user isn't looking.
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      refreshing = true;
       try {
         const regionParam = activeRegion || undefined;
         const [v, a, status] = await Promise.all([
@@ -159,12 +227,19 @@ function Dashboard() {
           api.getAlerts(alertStatusFilter || undefined, regionParam, alertsLimitRef.current),
           api.getIngestionStatus().catch(() => null),
         ]);
+        if (cancelled) return;
+        if (Object.keys(regions).length === 0) {
+          const [nextRegions, nextGeofences] = await Promise.all([api.getRegions(), api.getGeofences()]);
+          if (cancelled) return;
+          setRegions(nextRegions);
+          setGeofences(nextGeofences);
+        }
         // Skip state update (and the map marker diff pass it triggers) if nothing changed.
         setVessels((prev) => (shallowVesselListEqual(prev, v.items) ? prev : v.items));
         liveVesselsRef.current = v.items;
         setAlerts((prev) => (shallowAlertListEqual(prev, a.items) ? prev : a.items));
         setAlertsTotal(a.total);
-        if (status) setIngestionStatus(status);
+        setIngestionStatus(status);
         setSelectedVessel((prev) => {
           if (prev && (prev.id.startsWith("dark-") || prev.id.startsWith("seapod-"))) {
             api.getVesselDetail(prev.id).then(setSelectedVessel).catch(() => {});
@@ -173,14 +248,17 @@ function Dashboard() {
         });
         setConnectionOk(true);
       } catch {
+        if (cancelled) return;
         if (connectionOk) showToast("Connection lost — retrying...", "error");
         setConnectionOk(false);
+      } finally {
+        refreshing = false;
       }
     };
 
     refreshTimer.current = setInterval(tick, REFRESH_INTERVAL_MS);
-    return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
-  }, [activeRegion, alertStatusFilter, connectionOk, showToast]);
+    return () => { cancelled = true; if (refreshTimer.current) clearInterval(refreshTimer.current); };
+  }, [activeRegion, alertStatusFilter, api, connectionOk, isDemo, loading, regions, showToast]);
 
   // Region change handler
   const handleRegionChange = useCallback(async (regionKey: string | null) => {
@@ -210,7 +288,7 @@ function Dashboard() {
       setAlerts(a.items);
       setAlertsTotal(a.total);
     } catch {}
-  }, [regions, alertStatusFilter]);
+  }, [regions, api, alertStatusFilter]);
 
   const handleSelectVessel = useCallback(async (vesselId: string) => {
     // Cancel any pending close animation
@@ -231,7 +309,7 @@ function Dashboard() {
       const detail = await api.getVesselDetail(vesselId);
       setSelectedVessel(detail);
       const matchingAlert = alerts.find((a) => a.vessel_id === vesselId);
-      setSelectedAlertId(matchingAlert?.id ?? null);
+      setSelectedAlertId(matchingAlert?.id ?? detail.alert_id ?? null);
       if (detail.latest_position) {
         setMapTarget({
           center: [detail.latest_position.longitude, detail.latest_position.latitude],
@@ -242,7 +320,7 @@ function Dashboard() {
     } catch (e) {
       console.error("Failed to load vessel detail:", e);
     }
-  }, [alerts]);
+  }, [alerts, api]);
 
   const handleSelectAlert = useCallback(async (alert: Alert) => {
     setSelectedAlertId(alert.id);
@@ -270,7 +348,7 @@ function Dashboard() {
     } catch (e) {
       console.error("Failed to load vessel detail:", e);
     }
-  }, []);
+  }, [api]);
 
   const handleLoadMoreAlerts = useCallback(async () => {
     try {
@@ -281,9 +359,10 @@ function Dashboard() {
       setAlerts(a.items);
       setAlertsTotal(a.total);
     } catch {}
-  }, [activeRegion, alerts.length, alertStatusFilter]);
+  }, [activeRegion, alerts.length, api, alertStatusFilter]);
 
   const handleCloseDetail = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     setDetailClosing(true);
     closeTimerRef.current = setTimeout(() => {
       setSelectedVessel(null);
@@ -291,13 +370,18 @@ function Dashboard() {
       setSatelliteOverlay(null);
       setDetailClosing(false);
       closeTimerRef.current = null;
-    }, 200);
+    }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200);
   }, []);
 
   const handleAlertAction = useCallback(async (alertId: string, newStatus: string) => {
     setAlerts((prev) =>
       prev.map((a) => a.id === alertId ? { ...a, status: newStatus } : a)
     );
+    if (isDemo) {
+      const result = await api.getVessels(activeRegion ?? undefined);
+      setVessels(result.items);
+      if (selectedVessel) setSelectedVessel(await api.getVesselDetail(selectedVessel.id));
+    }
     showToast(
       newStatus === "dismissed" ? "Alert dismissed" : newStatus === "acknowledged" ? "Alert acknowledged" : `Alert ${newStatus}`,
       "success"
@@ -305,7 +389,7 @@ function Dashboard() {
     if (newStatus === "dismissed") {
       handleCloseDetail();
     }
-  }, [showToast, handleCloseDetail]);
+  }, [isDemo, showToast, api, activeRegion, selectedVessel, handleCloseDetail]);
 
 
 
@@ -318,13 +402,20 @@ function Dashboard() {
         analyticsCloseTimerRef.current = null;
       }, 200);
     } else {
+      if (!connectionOk) {
+        showToast("Analytics are unavailable while the data service is offline.", "info");
+        return;
+      }
       if (analyticsCloseTimerRef.current) { clearTimeout(analyticsCloseTimerRef.current); analyticsCloseTimerRef.current = null; setAnalyticsClosing(false); }
       // Close vessel detail panel if open
       if (selectedVessel) handleCloseDetail();
       setShowAnalytics(true);
-      api.getRiskDistribution().then(setAnalyticsData).catch(() => {});
+      api.getRiskDistribution().then(setAnalyticsData).catch(() => {
+        setShowAnalytics(false);
+        showToast("Analytics could not be loaded. Try again shortly.", "error");
+      });
     }
-  }, [showAnalytics, selectedVessel, handleCloseDetail]);
+  }, [showAnalytics, connectionOk, selectedVessel, handleCloseDetail, api, showToast]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -352,28 +443,11 @@ function Dashboard() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedVessel, showAnalytics, commandOpen, handleCloseDetail, handleToggleAnalytics, showToast]);
 
-  if (loading) {
-    return (
-      <div className="h-screen relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_30%,rgba(167,139,250,0.06),transparent_50%),radial-gradient(ellipse_at_70%_70%,rgba(34,211,238,0.04),transparent_50%)]" />
-        <div className="absolute top-3 left-3 right-3 flex items-center gap-2">
-          <div className="skeleton h-8 w-32 rounded-full" />
-          <div className="skeleton h-8 w-40 rounded-full" />
-          <div className="skeleton h-8 w-56 rounded-full" />
-          <div className="flex-1" />
-          <div className="skeleton h-8 w-20 rounded-full" />
-          <div className="skeleton h-8 w-24 rounded-full" />
-          <div className="skeleton h-8 w-16 rounded-full" />
-        </div>
-      </div>
-    );
-  }
-
   const isLive = ingestionStatus?.running && ingestionStatus?.connected;
-  const activeCount = alerts.filter((a) => a.status === "active").length;
 
   return (
-    <div id="main" className="h-screen relative overflow-hidden" data-tour="map">
+    <main id="main" className="harbor-workspace h-dvh relative overflow-hidden" data-demo={isDemo} data-tour="map">
+      <h1 className="sr-only">HarborOS maritime map</h1>
       {/* Full-bleed map */}
       <MapView
         vessels={vessels}
@@ -391,13 +465,18 @@ function Dashboard() {
         regions={regions}
         activeRegion={activeRegion}
         onSelectRegion={handleRegionChange}
-        alertCount={activeCount}
         isLive={!!isLive}
+        loading={loading}
+        statusKnown={ingestionStatus !== null}
         connectionOk={connectionOk}
+        vesselCount={vessels.length}
+        onModeChange={onModeChange}
         onToggleAnalytics={handleToggleAnalytics}
         analyticsOpen={showAnalytics}
         onOpenCommandPalette={() => setCommandOpen(true)}
       />
+
+      {isDemo && <DemoPlayback elapsed={demoElapsed} paused={demoPaused} loading={loading} onToggle={toggleDemoPlayback} />}
 
       {/* Ingest banner */}
       <IngestBanner
@@ -405,17 +484,20 @@ function Dashboard() {
         status={ingestionStatus}
         isLive={!!isLive}
         connectionOk={connectionOk}
+        loading={loading}
+        onDemo={() => onModeChange("demo")}
       />
 
       {/* Alert peeks, bottom-left */}
-      <AlertPeeks
+      {!loading && connectionOk && <AlertPeeks
         alerts={alerts}
         onSelectAlert={handleSelectAlert}
         selectedAlertId={selectedAlertId}
-      />
+        panelOpen={!!selectedVessel || showAnalytics}
+      />}
 
       {/* Command palette (⌘K) */}
-      <CommandPalette
+      {commandOpen && <CommandPalette
         open={commandOpen}
         onClose={() => setCommandOpen(false)}
         alerts={alerts}
@@ -424,8 +506,9 @@ function Dashboard() {
         activeRegion={activeRegion}
         onSelectAlert={handleSelectAlert}
         onSelectRegion={handleRegionChange}
+        onSelectVessel={handleSelectVessel}
         onToggleAnalytics={handleToggleAnalytics}
-      />
+      />}
 
       <FeatureTour
         active={featureTourActive}
@@ -449,6 +532,7 @@ function Dashboard() {
 
       {selectedVessel && (
         <VesselDetailPanel
+          key={selectedVessel.id}
           vessel={selectedVessel}
           alertId={selectedAlertId}
           onSatelliteOverlay={setSatelliteOverlay}
@@ -459,23 +543,21 @@ function Dashboard() {
         />
       )}
 
-      {/* Inline reconnecting pill — non-destructive, keeps map visible */}
-      {!connectionOk && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
-          <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[rgba(18,22,36,0.92)] backdrop-blur-xl border border-amber-400/30 shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
-            <span className="relative flex items-center justify-center w-2 h-2">
-              <span className="absolute w-2 h-2 rounded-full bg-amber-400/40" style={{ animation: "ring-pulse 1.6s infinite" }} />
-              <span className="relative w-1.5 h-1.5 rounded-full bg-amber-400" />
-            </span>
-            <span className="text-[12px] font-semibold text-amber-200">Reconnecting to backend…</span>
-            <span className="font-mono text-[10px] text-slate-500 tracking-[0.12em] uppercase">port 3003</span>
-          </div>
-        </div>
-      )}
 
       <ShortcutOverlay />
 
       <Toast toasts={toasts} onDismiss={dismissToast} />
-    </div>
+    </main>
+  );
+}
+
+function LoadingMap() {
+  return (
+    <main id="main" className="flex h-dvh items-center justify-center bg-[#080b14]" aria-busy="true">
+      <div role="status" className="text-center">
+        <h1 className="text-sm font-semibold text-slate-100">HarborOS</h1>
+        <p className="mt-2 text-xs text-slate-400">Loading map…</p>
+      </div>
+    </main>
   );
 }

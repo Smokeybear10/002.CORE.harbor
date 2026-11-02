@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { api } from "@/app/lib/api";
+import { getApi, getDataMode, type DataMode } from "@/app/lib/api";
 import { riskLevel } from "@/app/lib/risk";
 import { SiteNav, SiteFooter } from "@/app/components/SiteChrome";
 
@@ -54,24 +54,24 @@ function sevText(sev: number) {
 export default function ReportPage() {
   return (
     <Suspense fallback={<LoadingState />}>
-      <ReportContent />
+      <ReportSession />
     </Suspense>
   );
 }
 
-function LoadingState() {
+function LoadingState({ mapHref = "/" }: { mapHref?: string }) {
   return (
     <main id="main" className="min-h-screen">
-      <SiteNav />
+      <SiteNav mapHref={mapHref} />
       <div className="max-w-[1100px] mx-auto px-8 py-20 text-slate-500 text-[14px]">Loading report…</div>
     </main>
   );
 }
 
-function ErrorState({ message }: { message: string }) {
+function ErrorState({ message, mapHref }: { message: string; mapHref: string }) {
   return (
     <main id="main" className="min-h-screen">
-      <SiteNav />
+      <SiteNav mapHref={mapHref} />
       <div className="max-w-[1100px] mx-auto px-8 py-20">
         <div className="glass rounded-2xl p-8 border border-red-400/20 bg-red-500/[0.04]">
           <div className="text-[10.5px] font-mono tracking-[0.22em] text-red-300 uppercase mb-2">Error</div>
@@ -82,20 +82,28 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-function ReportContent() {
+function ReportSession() {
   const searchParams = useSearchParams();
   const vesselId = searchParams.get("vesselId");
+  const mode = getDataMode(searchParams.get("mode"));
+  return <ReportContent key={`${mode}:${vesselId}`} vesselId={vesselId} mode={mode} />;
+}
+
+function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: DataMode }) {
+  const api = getApi(mode);
+  const isDemo = mode === "demo";
+  const mapHref = `/?mode=${mode}`;
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!vesselId) return;
     api.getVesselReport(vesselId).then(setReport).catch(() => setError("Failed to load report"));
-  }, [vesselId]);
+  }, [api, vesselId]);
 
-  if (!vesselId) return <ErrorState message="No vessel specified." />;
-  if (error) return <ErrorState message={error} />;
-  if (!report) return <LoadingState />;
+  if (!vesselId) return <ErrorState message="No vessel specified." mapHref={mapHref} />;
+  if (error) return <ErrorState message={error} mapHref={mapHref} />;
+  if (!report) return <LoadingState mapHref={mapHref} />;
 
   const vessel = report.vessel as Record<string, unknown>;
   const position = report.latest_position as Record<string, unknown> | null;
@@ -112,7 +120,7 @@ function ReportContent() {
 
   return (
     <main id="main" className="min-h-screen">
-      <SiteNav />
+      <SiteNav mapHref={mapHref} />
 
       <div className="max-w-[1100px] mx-auto px-8 pt-10 pb-24">
         {/* Classification banner */}
@@ -120,7 +128,7 @@ function ReportContent() {
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-red-400/30 bg-red-500/[0.08] text-[10px] font-semibold tracking-[0.18em] uppercase text-red-300">
               <span className="w-1 h-1 rounded-full bg-red-400" />
-              Confidential
+              {isDemo ? "Demo report" : "Confidential"}
             </span>
             <span className="text-[10.5px] font-mono tracking-[0.18em] uppercase text-slate-500">Incident Report</span>
           </div>
@@ -146,6 +154,7 @@ function ReportContent() {
 
         {/* Hero */}
         <div className="mb-8">
+          {isDemo && <p className="mb-4 text-sm text-slate-400">Simulated LA Harbor scenario. Vessel positions and alerts are sample data.</p>}
           <div className="text-[10.5px] font-mono tracking-[0.22em] text-slate-500 uppercase mb-3">Subject Vessel</div>
           <h1 className="text-[36px] font-semibold tracking-[-0.02em] leading-[1.08] mb-3">
             {String(vessel.name)}
@@ -318,7 +327,7 @@ function ReportContent() {
 
         {/* Footer */}
         <div className="mt-12 pt-6 border-t border-white/[0.06] text-center text-[10.5px] font-mono tracking-[0.18em] uppercase text-slate-600">
-          HarborOS · Maritime Awareness Platform · Confidential
+          HarborOS · Maritime Awareness Platform · {isDemo ? "Demo report" : "Confidential"}
         </div>
       </div>
 

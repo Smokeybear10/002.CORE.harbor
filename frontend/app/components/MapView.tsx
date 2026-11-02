@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api } from "@/app/lib/api";
+import { useDataSource } from "@/app/lib/data-source";
 import type { Vessel, Geofence, SatelliteTileSource } from "@/app/lib/api";
 import { riskHex, RISK_THRESHOLDS } from "@/app/lib/risk";
 
@@ -29,12 +29,9 @@ const HEATMAP_ZOOM_THRESHOLD = 10; // Below this zoom: heatmap. At or above: ind
 
 function geofenceColor(zoneType: string): string {
   switch (zoneType) {
-    case "restricted": return "#ef4444";
-    case "security": return "#f97316";
-    case "shipping_lane": return "#3b82f6";
-    case "anchorage": return "#22c55e";
-    case "environmental": return "#8b5cf6";
-    default: return "#64748b";
+    case "restricted": return "#b88480";
+    case "security": return "#b69871";
+    default: return "#6b8499";
   }
 }
 
@@ -143,7 +140,7 @@ type MapMode = "maps" | "dark" | "satellite";
 
 const ESRI_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
-function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | null): maplibregl.StyleSpecification {
+function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | null): maplibregl.StyleSpecification | string {
   if (mapMode === "maps") {
     return {
       version: 8,
@@ -156,11 +153,10 @@ function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | 
           maxzoom: 18,
           attribution: "&copy; Esri, Maxar, Earthstar Geographics",
         },
-        "carto-labels": {
+        "place-labels": {
           type: "raster",
           tiles: [
-            "https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
-            "https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+            "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
           ],
           tileSize: 256,
           maxzoom: 18,
@@ -177,7 +173,7 @@ function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | 
         {
           id: "labels",
           type: "raster",
-          source: "carto-labels",
+          source: "place-labels",
           minzoom: 3,
           maxzoom: 22,
           paint: { "raster-opacity": 0.8 },
@@ -198,11 +194,10 @@ function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | 
           maxzoom: satelliteTiles?.max_zoom ?? 18,
           attribution: satelliteTiles?.attribution ?? "&copy; Esri, Maxar, Earthstar Geographics",
         },
-        "carto-labels": {
+        "place-labels": {
           type: "raster",
           tiles: [
-            "https://a.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
-            "https://b.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png",
+            "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
           ],
           tileSize: 256,
           maxzoom: 18,
@@ -219,7 +214,7 @@ function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | 
         {
           id: "labels",
           type: "raster",
-          source: "carto-labels",
+          source: "place-labels",
           minzoom: 3,
           maxzoom: 22,
           paint: { "raster-opacity": 0.8 },
@@ -227,32 +222,8 @@ function buildMapStyle(mapMode: MapMode, satelliteTiles?: SatelliteTileSource | 
       ],
     };
   }
-  return {
-    version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-    sources: {
-      "carto-dark": {
-        type: "raster",
-        tiles: [
-          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-        ],
-        tileSize: 256,
-        maxzoom: 18,
-        attribution: "&copy; CARTO &copy; OpenStreetMap contributors",
-      },
-    },
-    layers: [
-      {
-        id: "carto-dark",
-        type: "raster",
-        source: "carto-dark",
-        minzoom: 0,
-        maxzoom: 20,
-      },
-    ],
-  };
+
+  return "https://tiles.openfreemap.org/styles/dark";
 }
 
 export default function MapView({
@@ -266,6 +237,7 @@ export default function MapView({
   onMapClick,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
+  const { api } = useDataSource();
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Record<string, {
     marker: maplibregl.Marker;
@@ -275,7 +247,12 @@ export default function MapView({
     lng: number;
     lat: number;
   }>>({});
-  const [mapMode, setMapMode] = useState<MapMode>("maps");
+  const [styleVersion, setStyleVersion] = useState(0);
+  const styleLoadedRef = useRef(false);
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [mapMode, setMapMode] = useState<MapMode>("dark");
+  const [styleMenuOpen, setStyleMenuOpen] = useState(false);
+  const styleMenuRef = useRef<HTMLDivElement>(null);
   const [satelliteTiles, setSatelliteTiles] = useState<SatelliteTileSource | null>(null);
   const hideNormal = false;
   const [zoomLevel, setZoomLevel] = useState(12.5);
@@ -286,6 +263,21 @@ export default function MapView({
   const satelliteStyleKey = satelliteTiles
     ? `${satelliteTiles.tile_url}:${satelliteTiles.tile_size}:${satelliteTiles.max_zoom}:${satelliteTiles.sentinel2_available}`
     : "fallback";
+  const appliedStyleRef = useRef({ mode: mapMode, key: satelliteStyleKey });
+
+  useEffect(() => {
+    if (!styleMenuOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!styleMenuRef.current?.contains(event.target as Node)) setStyleMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setStyleMenuOpen(false); };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [styleMenuOpen]);
 
   useEffect(() => {
     centerChangeRef.current = onMapCenterChange;
@@ -309,12 +301,12 @@ export default function MapView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [api]);
 
   // Build heatmap GeoJSON from vessels
   const updateHeatmap = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !styleLoadedRef.current) return;
 
     const features = vessels
       .filter((v) => v.latest_position)
@@ -362,7 +354,7 @@ export default function MapView({
 
   const updateMarkers = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !styleLoadedRef.current) return;
 
     // Update heatmap data regardless of zoom
     updateHeatmap();
@@ -414,6 +406,16 @@ export default function MapView({
         el.style.cursor = "pointer";
         el.style.pointerEvents = "auto";
         el.setAttribute("data-vessel-id", vessel.id);
+        el.setAttribute("role", "button");
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("aria-label", `Inspect ${vessel.name}`);
+        el.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            el.click();
+          }
+        });
 
         el.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -438,6 +440,10 @@ export default function MapView({
         markerData.lat = lat;
       }
 
+      const point = map.project([lng, lat]);
+      const container = map.getContainer();
+      el.tabIndex = point.x >= 0 && point.x <= container.clientWidth && point.y >= 0 && point.y <= container.clientHeight ? 0 : -1;
+
       // Skip expensive innerHTML write unless visual state actually changed.
       const unchanged =
         state &&
@@ -453,14 +459,18 @@ export default function MapView({
 
       if (unchanged) return;
 
-      el.style.width = `${w}px`;
-      el.style.height = `${h}px`;
-      const glowSize = isMuted ? 0 : score >= RISK_THRESHOLDS.escalate ? 8 : score >= RISK_THRESHOLDS.verify ? 5 : 3;
-      const glowAlpha = isMuted ? "00" : score >= RISK_THRESHOLDS.verify ? "cc" : "80";
-      const pulseAnimation = (!isMuted && score >= RISK_THRESHOLDS.escalate) ? "animation:pulse 2s infinite;" : "";
+      el.style.width = "44px";
+      el.style.height = "44px";
+      el.style.display = "flex";
+      el.style.alignItems = "center";
+      el.style.justifyContent = "center";
+      el.style.zIndex = isSelected ? "2" : "1";
+      el.setAttribute("aria-pressed", String(isSelected));
+      const glowSize = isSelected ? 3 : 0;
+      const glowAlpha = "60";
 
       el.innerHTML = `
-      <div style="width:100%;height:100%;${pulseAnimation}">
+      <div style="width:${w}px;height:${h}px;">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${w}" height="${h}"
              style="transform:rotate(${course}deg);transition:transform 0.5s ease;filter:drop-shadow(0 0 ${glowSize}px ${color}${glowAlpha})">
           <path d="${hull}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-linejoin="round"/>
@@ -485,13 +495,31 @@ export default function MapView({
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
-    const map = new maplibregl.Map({
-      container: mapContainer.current,
-      style: buildMapStyle(mapMode, satelliteTiles),
-      center: [-118.265, 33.725],
-      zoom: 12.5,
-      pitch: 0,
-      attributionControl: false,
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: mapContainer.current,
+        style: buildMapStyle(mapMode, satelliteTiles),
+        center: [-118.265, 33.725],
+        zoom: 12.5,
+        pitch: 0,
+        attributionControl: false,
+        ...(mapContainer.current.clientWidth < 640 ? {
+          bounds: [[-118.325, 33.66], [-118.205, 33.76]] as [[number, number], [number, number]],
+          fitBoundsOptions: { padding: { top: 140, bottom: 180, left: 24, right: 60 } },
+        } : {}),
+      });
+    } catch {
+      // MapLibre can fail before it can emit an error event.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMapUnavailable(true);
+      return;
+    }
+
+    mapRef.current = map;
+    map.on("style.load", () => {
+      styleLoadedRef.current = true;
+      setStyleVersion((version) => version + 1);
     });
 
     map.on("error", () => {
@@ -499,8 +527,9 @@ export default function MapView({
     });
 
     map.on("load", () => {
-      mapRef.current = map;
+      setZoomLevel(map.getZoom());
       map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
       const center = map.getCenter();
       centerChangeRef.current?.([center.lng, center.lat]);
 
@@ -517,98 +546,78 @@ export default function MapView({
         mapClickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
       });
 
-      geofences.forEach((gf) => {
-        const color = geofenceColor(gf.zone_type);
-        map.addSource(`geofence-${gf.id}`, {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            geometry: gf.geometry,
-            properties: { name: gf.name, zone_type: gf.zone_type },
-          },
-        });
-
-        map.addLayer({
-          id: `geofence-fill-${gf.id}`,
-          type: "fill",
-          source: `geofence-${gf.id}`,
-          paint: {
-            "fill-color": color,
-            "fill-opacity": 0.06,
-          },
-        });
-
-        map.addLayer({
-          id: `geofence-line-${gf.id}`,
-          type: "line",
-          source: `geofence-${gf.id}`,
-          paint: {
-            "line-color": color,
-            "line-width": 1,
-            "line-dasharray": [4, 3],
-            "line-opacity": 0.4,
-          },
-        });
-      });
-
-      updateMarkers();
     });
 
     return () => {
       map.remove();
       mapRef.current = null;
+      styleLoadedRef.current = false;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     updateMarkers();
-  }, [updateMarkers]);
+  }, [updateMarkers, styleVersion]);
 
-  // Switch base map style
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const center = map.getCenter();
-    const zoom = map.getZoom();
-    map.setStyle(buildMapStyle(mapMode, satelliteTiles));
-    map.once("styledata", () => {
-      map.setCenter(center);
-      map.setZoom(zoom);
-      // Re-add geofences after style change
-      geofences.forEach((gf) => {
-        const color = geofenceColor(gf.zone_type);
-        if (!map.getSource(`geofence-${gf.id}`)) {
-          map.addSource(`geofence-${gf.id}`, {
-            type: "geojson",
-            data: { type: "Feature", geometry: gf.geometry, properties: {} },
-          });
-          map.addLayer({
-            id: `geofence-fill-${gf.id}`, type: "fill", source: `geofence-${gf.id}`,
-            paint: { "fill-color": color, "fill-opacity": 0.1 },
-          });
-          map.addLayer({
-            id: `geofence-line-${gf.id}`, type: "line", source: `geofence-${gf.id}`,
-            paint: { "line-color": color, "line-width": 1.5, "line-dasharray": [4, 2], "line-opacity": 0.6 },
-          });
-        }
+    map.on("moveend", updateMarkers);
+    map.on("resize", updateMarkers);
+    return () => {
+      map.off("moveend", updateMarkers);
+      map.off("resize", updateMarkers);
+    };
+  }, [updateMarkers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const applied = appliedStyleRef.current;
+    if (applied.mode === mapMode && applied.key === satelliteStyleKey) return;
+    appliedStyleRef.current = { mode: mapMode, key: satelliteStyleKey };
+    styleLoadedRef.current = false;
+    map.setStyle(buildMapStyle(mapMode, satelliteTiles), { diff: false });
+  }, [mapMode, satelliteStyleKey, satelliteTiles]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoadedRef.current) return;
+    geofences.forEach((gf) => {
+      if (map.getSource(`geofence-${gf.id}`)) return;
+      const color = geofenceColor(gf.zone_type);
+      map.addSource(`geofence-${gf.id}`, {
+        type: "geojson",
+        data: { type: "Feature", geometry: gf.geometry, properties: { name: gf.name, zone_type: gf.zone_type } },
       });
-      updateMarkers();
+      map.addLayer({
+        id: `geofence-fill-${gf.id}`, type: "fill", source: `geofence-${gf.id}`,
+        paint: { "fill-color": color, "fill-opacity": 0.035 },
+      });
+      map.addLayer({
+        id: `geofence-line-${gf.id}`, type: "line", source: `geofence-${gf.id}`,
+        paint: { "line-color": color, "line-width": 1, "line-dasharray": [4, 3], "line-opacity": 0.4 },
+      });
     });
-  }, [mapMode, satelliteStyleKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [geofences, styleVersion]);
 
   useEffect(() => {
     if (!flyTo || !mapRef.current) return;
-    mapRef.current.flyTo({
+    mapRef.current.easeTo({
       center: flyTo.center,
       zoom: flyTo.zoom,
-      duration: 2000,
+      offset: selectedVesselId ? (mapRef.current.getContainer().clientWidth < 640
+        ? [0, 60 - mapRef.current.getContainer().clientHeight * 0.34]
+        : [-210, 0]) : [0, 0],
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1000,
     });
-  }, [flyTo]);
+  // Closing the detail panel should keep the current map position.
+  }, [flyTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Vessel trail when selected
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !styleLoadedRef.current) return;
 
     // Clean up previous trail
     if (map.getLayer("vessel-trail")) map.removeLayer("vessel-trail");
@@ -621,7 +630,7 @@ export default function MapView({
 
     let cancelled = false;
     api.getVesselDetail(selectedVesselId).then((detail) => {
-      if (cancelled || !mapRef.current) return;
+      if (cancelled || !mapRef.current || !styleLoadedRef.current) return;
       const positions = detail.positions;
       if (!positions || positions.length < 2) return;
 
@@ -684,12 +693,12 @@ export default function MapView({
     return () => {
       cancelled = true;
     };
-  }, [selectedVesselId, vessels, mapMode, satelliteStyleKey]);
+  }, [selectedVesselId, vessels, mapMode, satelliteStyleKey, styleVersion, api]);
 
   // Satellite imagery overlay
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !styleLoadedRef.current) return;
 
     if (map.getLayer("sat-imagery")) map.removeLayer("sat-imagery");
     if (map.getSource("sat-imagery")) map.removeSource("sat-imagery");
@@ -720,55 +729,35 @@ export default function MapView({
         "raster-fade-duration": 0,
       },
     });
-  }, [satelliteOverlay, mapMode, satelliteStyleKey]);
+  }, [satelliteOverlay, mapMode, satelliteStyleKey, styleVersion]);
 
   return (
     <div className="absolute inset-0">
       <div
         ref={mapContainer}
         role="application"
-        aria-label={`Live vessel tracking map · ${vessels.length} vessel${vessels.length === 1 ? "" : "s"} in view. Use the alert queue or command palette (Cmd+K) for keyboard-accessible vessel selection.`}
+        aria-label={`Vessel tracking map · ${vessels.length} vessel${vessels.length === 1 ? "" : "s"} in view. Use the alert queue or command palette (Cmd+K) for keyboard-accessible vessel selection.`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
       />
+      {mapUnavailable && (
+        <div role="status" className="absolute inset-0 flex items-center justify-center px-6">
+          <div className="max-w-sm text-center">
+            <h2 className="text-sm font-semibold text-slate-100">Map unavailable in this browser</h2>
+            <p className="mt-2 text-xs leading-relaxed text-slate-400">Enable graphics acceleration or use a browser with WebGL support to view the map.</p>
+          </div>
+        </div>
+      )}
       {/* Base map toggle */}
-      <div className="absolute bottom-4 right-4 bg-[#0d1320]/95 backdrop-blur-md border border-[#1a2235] rounded-xl overflow-hidden shadow-2xl shadow-black/50 ring-1 ring-white/[0.03] flex">
-        <button
-          onClick={() => setMapMode("maps")}
-          className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-            mapMode === "maps"
-              ? "bg-blue-500/20 text-blue-400 border-r border-[#1a2235]"
-              : "text-slate-500 hover:text-slate-300 border-r border-[#1a2235]"
-          }`}
-        >
-          Maps
-        </button>
-        <button
-          onClick={() => setMapMode("dark")}
-          className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-            mapMode === "dark"
-              ? "bg-blue-500/20 text-blue-400 border-r border-[#1a2235]"
-              : "text-slate-500 hover:text-slate-300 border-r border-[#1a2235]"
-          }`}
-        >
-          Dark
-        </button>
-        <button
-          onClick={() => setMapMode("satellite")}
-          className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-            mapMode === "satellite"
-              ? "bg-blue-500/20 text-blue-400"
-              : "text-slate-500 hover:text-slate-300"
-          }`}
-        >
-          Satellite
+      <div ref={styleMenuRef} aria-label="Map style" className="absolute bottom-[var(--map-tools-bottom)] right-3 z-10">
+        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-36 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1 shadow-lg">
+          {([['dark', 'Map'], ['maps', 'Hybrid'], ['satellite', 'Satellite']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mapMode === value} onClick={() => { setMapMode(value); setStyleMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between rounded px-3 text-xs ${mapMode === value ? "bg-white/[0.07] text-white" : "text-slate-300 hover:bg-white/[0.04]"}`}>{label}{mapMode === value && <span aria-hidden="true">✓</span>}</button>)}
+        </div>}
+        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs font-medium text-slate-200 shadow-lg hover:bg-slate-800 disabled:opacity-40">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" /></svg>
+          <span>Layers</span>
         </button>
       </div>
-      <style jsx global>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.7; transform: scale(1.4); }
-        }
-      `}</style>
+
     </div>
   );
 }
