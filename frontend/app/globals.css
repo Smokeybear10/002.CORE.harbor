@@ -191,6 +191,7 @@ body > *:not(.ambient-glow) {
   --playback-bottom: max(28px, calc(env(safe-area-inset-bottom) + 12px));
 }
 .harbor-workspace .maplibregl-map { overflow: clip; }
+.harbor-workspace :focus-visible { outline-color: #94a3b8; }
 .harbor-workspace[data-demo="true"] {
   --map-panel-bottom: calc(var(--playback-bottom) + 82px);
   --map-tools-bottom: calc(var(--playback-bottom) + 82px);
