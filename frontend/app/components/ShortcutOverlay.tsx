@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Shortcut = { keys: string[]; desc: string };
 
@@ -8,8 +8,8 @@ const GROUPS: { title: string; items: Shortcut[] }[] = [
   {
     title: "Navigation",
     items: [
-      { keys: ["⌘", "K"], desc: "Open command palette" },
-      { keys: ["⌘", "/"], desc: "Show this cheatsheet" },
+      { keys: ["⌘ / Ctrl", "K"], desc: "Search vessels and commands" },
+      { keys: ["⌘ / Ctrl", "/"], desc: "Keyboard shortcuts" },
       { keys: ["Esc"], desc: "Close active panel" },
     ],
   },
@@ -17,7 +17,7 @@ const GROUPS: { title: string; items: Shortcut[] }[] = [
     title: "Panels",
     items: [
       { keys: ["A"], desc: "Toggle analytics panel" },
-      { keys: ["?"], desc: "Show shortcut hint toast" },
+      { keys: ["?"], desc: "Show shortcut hint" },
     ],
   },
   {
@@ -32,6 +32,16 @@ const GROUPS: { title: string; items: Shortcut[] }[] = [
 
 export default function ShortcutOverlay() {
   const [open, setOpen] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement;
+    closeRef.current?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [open]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -53,24 +63,34 @@ export default function ShortcutOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-[rgba(8,11,20,0.72)] backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4"
       onClick={() => setOpen(false)}
     >
       <div
-        className="w-[min(480px,92vw)] rounded-2xl border border-white/[0.14] bg-[rgba(18,22,36,0.92)] backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.55)] overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="keyboard-shortcuts-title"
+        className="w-full max-w-[480px] max-h-[calc(100dvh-32px)] overflow-y-auto rounded border border-[var(--workspace-border)] bg-[var(--workspace-surface)]"
         onClick={(e) => e.stopPropagation()}
-        style={{ animation: "fade-in-up 0.2s ease-out" }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key === "/")) {
+            e.preventDefault();
+            setOpen(false);
+          }
+          if (e.key === "Tab") {
+            e.preventDefault();
+            closeRef.current?.focus();
+          }
+        }}
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.08]">
-          <div>
-            <div className="text-[13px] font-semibold text-slate-100">Keyboard shortcuts</div>
-            <div className="text-[10.5px] font-mono tracking-[0.14em] uppercase text-slate-500 mt-0.5">
-              Operator tempo
-            </div>
-          </div>
+          <h2 id="keyboard-shortcuts-title" className="text-base font-medium text-slate-100">Keyboard shortcuts</h2>
           <button
+            ref={closeRef}
+            type="button"
             onClick={() => setOpen(false)}
-            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+            className="w-11 h-11 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] transition-colors"
             aria-label="Close shortcuts"
           >
             <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
@@ -82,18 +102,18 @@ export default function ShortcutOverlay() {
         <div className="px-5 py-4 space-y-5">
           {GROUPS.map((group) => (
             <div key={group.title}>
-              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-slate-500 mb-2.5">
+              <h3 className="text-xs font-medium text-slate-400 mb-2.5">
                 {group.title}
-              </div>
+              </h3>
               <div className="space-y-1.5">
                 {group.items.map((s) => (
-                  <div key={s.desc} className="flex items-center justify-between py-1">
-                    <span className="text-[12.5px] text-slate-200">{s.desc}</span>
-                    <div className="flex items-center gap-1">
+                  <div key={s.desc} className="flex items-center justify-between gap-3 py-1.5">
+                    <span className="text-sm text-slate-200">{s.desc}</span>
+                    <div className="flex shrink-0 items-center gap-1">
                       {s.keys.map((k) => (
                         <kbd
                           key={k}
-                          className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-slate-300 min-w-[22px] text-center"
+                          className="font-mono text-xs px-1.5 py-0.5 rounded-sm bg-white/[0.04] border border-[var(--workspace-border)] text-slate-300 min-w-[24px] text-center"
                         >
                           {k}
                         </kbd>
@@ -106,8 +126,8 @@ export default function ShortcutOverlay() {
           ))}
         </div>
 
-        <div className="px-5 py-3 border-t border-white/[0.06] text-[10.5px] font-mono text-slate-500 tracking-[0.08em]">
-          Press <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-slate-300">Esc</kbd> or click outside to close.
+        <div className="px-5 py-3 border-t border-[var(--workspace-border)] text-xs text-slate-400">
+          Press Esc or click outside to close.
         </div>
       </div>
     </div>

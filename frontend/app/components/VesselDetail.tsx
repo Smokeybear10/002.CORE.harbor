@@ -29,7 +29,7 @@ function actionStyle(action: string) {
     case "escalate": return "bg-red-500/10 text-red-400 border-red-500/25";
     case "verify": return "bg-orange-500/10 text-orange-400 border-orange-500/25";
     case "monitor": return "bg-yellow-500/10 text-yellow-400 border-yellow-500/25";
-    case "normal": return "bg-green-500/10 text-green-400 border-green-500/25";
+    case "normal": return "bg-slate-500/10 text-slate-300 border-slate-500/25";
     default: return "bg-slate-500/10 text-slate-400 border-slate-500/25";
   }
 }
@@ -119,7 +119,7 @@ function RiskSparkline({ data }: { data: RiskHistoryPoint[] }) {
   const trendIcon = trend > 5 ? "\u2197" : trend < -5 ? "\u2198" : "\u2192";
   const trendColor = trend > 5 ? "text-red-400" : trend < -5 ? "text-green-400" : "text-slate-500";
 
-  const lineColor = last >= RISK_THRESHOLDS.escalate ? "#f87171" : last >= RISK_THRESHOLDS.verify ? "#fb923c" : last >= RISK_THRESHOLDS.monitor ? "#facc15" : "#4ade80";
+  const lineColor = last >= RISK_THRESHOLDS.escalate ? "#f87171" : last >= RISK_THRESHOLDS.verify ? "#fb923c" : last >= RISK_THRESHOLDS.monitor ? "#facc15" : "#8da5b7";
   const fillOpacity = "0.08";
 
   // Threshold y positions
@@ -397,8 +397,13 @@ export default function VesselDetailPanel({
   };
 
   const riskScore = vessel.risk_score ?? 0;
+  const hasRiskScore = vessel.risk_score !== null;
   const level = riskLevel(riskScore);
   const action = level === "normal" ? "normal" : (vessel.recommended_action ?? "normal");
+  const positionTimestamp = vessel.latest_position?.timestamp;
+  const positionTime = positionTimestamp
+    ? /(?:Z|[+-]\d{2}:\d{2})$/i.test(positionTimestamp) ? positionTimestamp : `${positionTimestamp}Z`
+    : null;
 
   if (showReport && exportReport) {
     return (
@@ -465,19 +470,19 @@ export default function VesselDetailPanel({
       <div className="px-4 py-3 border-b border-[var(--workspace-border)]">
         <div className="flex items-center gap-3 mb-2">
           <span className={`text-3xl font-bold font-mono leading-none ${riskColor(riskScore)}`}>
-            {Math.round(riskScore)}
+            {hasRiskScore ? Math.round(riskScore) : "—"}
           </span>
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-slate-200">Risk score</span>
               <span className={`text-xs font-medium capitalize px-1.5 py-0.5 rounded border ${actionStyle(action)}`}>
-                {action}
+                {hasRiskScore ? action : "Pending"}
               </span>
             </div>
             <div className="w-full bg-[#111827] rounded-full h-1 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  riskScore >= RISK_THRESHOLDS.escalate ? "bg-red-400" : riskScore >= RISK_THRESHOLDS.verify ? "bg-orange-400" : riskScore >= RISK_THRESHOLDS.monitor ? "bg-yellow-400" : "bg-green-400"
+                  riskScore >= RISK_THRESHOLDS.escalate ? "bg-red-400" : riskScore >= RISK_THRESHOLDS.verify ? "bg-orange-400" : riskScore >= RISK_THRESHOLDS.monitor ? "bg-yellow-400" : "bg-slate-400"
                 }`}
                 style={{ width: `${riskScore}%` }}
               />
@@ -532,7 +537,11 @@ export default function VesselDetailPanel({
 
       {vessel.latest_position && (
         <section className="border-b border-[var(--workspace-border)] px-4 py-4">
-          <h3 className="mb-3 text-sm font-medium text-slate-200">Position</h3>
+          <h3 className="text-sm font-medium text-slate-200">Position</h3>
+          {positionTime && <div className="mb-4 mt-1 text-xs leading-relaxed text-slate-400">
+            {isDemo ? "Simulation time" : "Last AIS report"}{" · "}
+            <time dateTime={positionTime}>{new Date(positionTime).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC", hourCycle: "h23" })} UTC</time>
+          </div>}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
             <div><dt className="mb-1 text-xs text-slate-400">Latitude</dt><dd className="font-mono text-sm text-slate-200">{vessel.latest_position.latitude.toFixed(5)}°</dd></div>
             <div><dt className="mb-1 text-xs text-slate-400">Longitude</dt><dd className="font-mono text-sm text-slate-200">{vessel.latest_position.longitude.toFixed(5)}°</dd></div>
@@ -924,7 +933,7 @@ export default function VesselDetailPanel({
           {savedNotes.length > 0 && (
             <div className="space-y-1.5 mb-3">
               {savedNotes.map((note, i) => (
-                <div key={i} className="bg-[#111827] rounded-md p-2.5 border border-[#1a2235]">
+                <div key={i} className="border-b border-[var(--workspace-border)] py-3 last:border-0">
                   <p className="text-[11px] text-slate-300 leading-relaxed">{note}</p>
                 </div>
               ))}
@@ -936,14 +945,14 @@ export default function VesselDetailPanel({
             aria-label="Operator note"
             placeholder="Add a note…"
             rows={2}
-            className="w-full bg-[#111827] border border-[#1a2235] rounded-lg p-2.5 text-[11px] text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-slate-600 transition-colors"
+            className="w-full bg-white/[0.025] border border-[var(--workspace-border)] rounded p-3 text-sm text-slate-200 placeholder-slate-400 resize-y focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 transition-colors"
           />
           <button
             onClick={handleSaveNote}
             disabled={noteSaving || !noteText.trim()}
-            className="mt-2 w-full py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:bg-[#111827] disabled:border-[#1a2235] disabled:text-slate-600 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
+            className="mt-2 min-h-11 py-2 px-4 border border-[var(--workspace-border)] hover:bg-white/[0.06] disabled:opacity-40 text-slate-200 text-sm font-medium rounded transition-colors"
           >
-            {noteSaving ? "Saving..." : "Save Note"}
+            {noteSaving ? "Saving…" : "Save note"}
           </button>
         </div>
       )}
