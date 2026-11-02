@@ -546,7 +546,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   return (
     <main id="main" className="harbor-workspace h-dvh relative overflow-hidden" data-demo={isDemo} data-tour="map">
       <h1 className="sr-only">Vessel tracking map</h1>
-      {/* Full-bleed map */}
       <MapView
         vessels={vessels}
         geofences={geofences}
@@ -559,7 +558,6 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         onViewportChange={handleViewportChange}
       />
 
-      {/* Floating top strip */}
       <FloatingChrome
         regions={regions}
         activeRegion={activeRegion}
@@ -593,13 +591,14 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         vesselsTotal={vesselsTotal}
       />
 
-      {/* Alert peeks, bottom-left */}
-      {!loading && connectionOk && (isDemo || alerts.length > 0 || (coverage?.subscribed && vessels.length > 0)) && <AlertPeeks
+      <AlertPeeks
         alerts={alerts}
         onSelectAlert={handleSelectAlert}
         selectedAlertId={selectedAlertId}
         panelOpen={!!selectedVessel || showAnalytics}
-      />}
+        loading={loading}
+        connectionOk={connectionOk}
+      />
 
       {/* Command palette (⌘K) */}
       {commandOpen && <CommandPalette
@@ -658,10 +657,9 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
 
 function LoadingMap() {
   return (
-    <main id="main" className="flex h-dvh items-center justify-center bg-[#080b14]" aria-busy="true">
+    <main id="main" className="harbor-workspace flex h-dvh items-center justify-center" aria-busy="true">
       <div role="status" className="text-center">
-        <h1 className="text-sm font-semibold text-slate-100">Vessel tracking</h1>
-        <p className="mt-2 text-xs text-slate-400">Loading map…</p>
+        <p className="text-sm text-[var(--workspace-muted)]">Loading map…</p>
       </div>
     </main>
   );

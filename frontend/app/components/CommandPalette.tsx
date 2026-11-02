@@ -123,16 +123,16 @@ export default function CommandPalette({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[12vh] px-4" onMouseDown={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-[#24393d]/20" />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Search vessels and commands"
-        className="workspace-panel relative w-full max-w-[640px] overflow-hidden shadow-xl"
+        className="relative w-full max-w-[640px] overflow-hidden border border-[var(--workspace-border)] bg-[var(--workspace-surface)]"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3 px-4 h-12 border-b border-white/[0.06]">
+        <div className="flex items-center gap-3 px-4 h-12 border-b border-[var(--workspace-border)]">
           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-slate-500">
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
@@ -146,7 +146,7 @@ export default function CommandPalette({
             placeholder="Search by vessel name or MMSI…"
             className="min-w-0 flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder-slate-400"
           />
-          <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-slate-400">esc</kbd>
+          <kbd className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] text-slate-400">esc</kbd>
         </div>
 
         <div className="max-h-[min(440px,60vh)] overflow-y-auto p-1.5">
@@ -158,7 +158,7 @@ export default function CommandPalette({
           ))}
         </div>
 
-        <div className="flex items-center justify-between px-4 h-9 border-t border-white/[0.06] bg-white/[0.015] text-[10.5px] text-slate-500">
+        <div className="flex items-center justify-between px-4 h-9 border-t border-[var(--workspace-border)] bg-[var(--workspace-subtle)] text-xs text-slate-500">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5"><Kbd>↑</Kbd><Kbd>↓</Kbd>navigate</span>
             <span className="flex items-center gap-1.5"><Kbd>↵</Kbd>select</span>
@@ -178,12 +178,12 @@ function rowKey(r: Result, i: number): string {
 }
 
 function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-slate-400">{children}</kbd>;
+  return <kbd className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--workspace-subtle)] border border-[var(--workspace-border)] text-slate-400">{children}</kbd>;
 }
 
 function ResultRow({ result, selected, onHover, onRun }: { result: Result; selected: boolean; onHover: () => void; onRun: () => void }) {
-  const base = `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-    selected ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"
+  const base = `w-full min-h-11 flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+    selected ? "bg-[var(--workspace-subtle)]" : "hover:bg-[var(--workspace-subtle)]"
   }`;
 
   if (result.kind === "region") {
@@ -191,7 +191,7 @@ function ResultRow({ result, selected, onHover, onRun }: { result: Result; selec
       <button className={base} onMouseEnter={onHover} onClick={onRun}>
         <Kind icon="region" />
         <span className="flex-1 text-[13px] text-slate-100">{result.label}</span>
-        <span className="font-mono text-[10px] text-slate-500">region</span>
+        <span className="font-mono text-xs text-slate-500">region</span>
       </button>
     );
   }
@@ -203,9 +203,9 @@ function ResultRow({ result, selected, onHover, onRun }: { result: Result; selec
         <Kind icon="alert" />
         <div className="flex-1 min-w-0">
           <div className="text-[13px] text-slate-100 truncate">{result.alert.vessel_name || "Unknown"}</div>
-          <div className="font-mono text-[10.5px] text-slate-500 tabular-nums">MMSI {result.alert.vessel_mmsi || "—"}</div>
+          <div className="font-mono text-xs text-slate-500 tabular-nums">MMSI {result.alert.vessel_mmsi || "—"}</div>
         </div>
-        <span className={`font-mono text-[11px] font-semibold tabular-nums ${tierColor}`}>
+        <span className={`font-mono text-xs font-semibold tabular-nums ${tierColor}`}>
           {Math.round(result.alert.risk_score)}
         </span>
       </button>
@@ -218,9 +218,9 @@ function ResultRow({ result, selected, onHover, onRun }: { result: Result; selec
         <Kind icon="vessel" />
         <div className="flex-1 min-w-0">
           <div className="text-[13px] text-slate-100 truncate">{result.vessel.name || "Unknown"}</div>
-          <div className="font-mono text-[10.5px] text-slate-500 tabular-nums">MMSI {result.vessel.mmsi}</div>
+          <div className="font-mono text-xs text-slate-500 tabular-nums">MMSI {result.vessel.mmsi}</div>
         </div>
-        <span className="font-mono text-[10px] text-slate-500">{result.vessel.vessel_type || "vessel"}</span>
+        <span className="font-mono text-xs text-slate-500">{result.vessel.vessel_type || "vessel"}</span>
       </button>
     );
   }

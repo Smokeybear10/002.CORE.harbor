@@ -142,7 +142,7 @@ function vesselSvgPaths(vesselType: string): {
   }
 }
 
-type MapMode = "maps" | "dark" | "satellite";
+type MapMode = "maps" | "chart" | "satellite";
 
 const ESRI_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 
@@ -238,22 +238,23 @@ function applyMapPalette(map: maplibregl.Map) {
   if (!water || water.type !== "fill") return;
 
   for (const layer of layers) {
-    if (layer.type === "background") map.setPaintProperty(layer.id, "background-color", "#263137");
+    if (layer.type === "background") map.setPaintProperty(layer.id, "background-color", "#f0efe7");
     if (layer.type === "fill") {
-      const color = layer.id === "water" ? "#122631"
-        : layer.id === "building" ? "#334149"
-        : layer.id === "road_area_pier" ? "#536670" : "#28363c";
+      const color = layer.id === "water" ? "#dbe6e8"
+        : layer.id === "building" ? "#ddded6"
+        : layer.id === "road_area_pier" ? "#c8d0ca" : "#ebeee5";
       map.setPaintProperty(layer.id, "fill-color", color);
+      if (layer.paint?.["fill-outline-color"]) map.setPaintProperty(layer.id, "fill-outline-color", "#b8c3bc");
     }
     if (layer.type === "line") {
       const transport = layer.id.startsWith("highway") || layer.id.startsWith("railway");
       if (transport) {
-        map.setPaintProperty(layer.id, "line-color", "#61717a");
-        map.setPaintProperty(layer.id, "line-opacity", ["interpolate", ["linear"], ["zoom"], 6, 0.06, 10, 0.16, 14, 0.4]);
+        map.setPaintProperty(layer.id, "line-color", "#bfc6bc");
+        map.setPaintProperty(layer.id, "line-opacity", ["interpolate", ["linear"], ["zoom"], 6, 0.12, 10, 0.3, 14, 0.65]);
       } else if (layer.id === "waterway") {
-        map.setPaintProperty(layer.id, "line-color", "#122631");
+        map.setPaintProperty(layer.id, "line-color", "#b9d0d6");
       } else if (layer.id.startsWith("boundary")) {
-        map.setPaintProperty(layer.id, "line-color", "#6a7c86");
+        map.setPaintProperty(layer.id, "line-color", "#929f9d");
         map.setPaintProperty(layer.id, "line-opacity", 0.35);
       }
     }
@@ -265,8 +266,8 @@ function applyMapPalette(map: maplibregl.Map) {
         : ["place_other", "place_suburb", "place_village"].includes(layer.id) ? 10
         : layer.id === "place_state" ? 5 : null;
       if (minZoom !== null) map.setLayerZoomRange(layer.id, minZoom, layer.maxzoom ?? 24);
-      map.setPaintProperty(layer.id, "text-color", waterLabel ? "#7896a8" : "#a5b4bc");
-      map.setPaintProperty(layer.id, "text-halo-color", waterLabel ? "#122631" : "#263137");
+      map.setPaintProperty(layer.id, "text-color", waterLabel ? "#607c88" : "#69746d");
+      map.setPaintProperty(layer.id, "text-halo-color", waterLabel ? "#dbe6e8" : "#f0efe7");
       map.setPaintProperty(layer.id, "text-halo-width", 1);
     }
   }
@@ -276,7 +277,7 @@ function applyMapPalette(map: maplibregl.Map) {
     source: water.source,
     "source-layer": water["source-layer"],
     filter: water.filter,
-    paint: { "line-color": "#59717e", "line-width": 0.75, "line-opacity": 0.45 },
+    paint: { "line-color": "#8fa7aa", "line-width": 0.75, "line-opacity": 0.7 },
   }, "water_name");
 }
 
@@ -305,7 +306,7 @@ export default function MapView({
   const [styleVersion, setStyleVersion] = useState(0);
   const styleLoadedRef = useRef(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
-  const [mapMode, setMapMode] = useState<MapMode>("dark");
+  const [mapMode, setMapMode] = useState<MapMode>("chart");
   const [styleMenuOpen, setStyleMenuOpen] = useState(false);
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const [satelliteTiles, setSatelliteTiles] = useState<SatelliteTileSource | null>(null);
@@ -401,7 +402,7 @@ export default function MapView({
             9, ["case", ["get", "selected"], 7, 4.5],
           ],
           "circle-color": ["get", "color"],
-          "circle-stroke-color": ["case", ["get", "selected"], "#f8fafc", "#0f172a"],
+          "circle-stroke-color": ["case", ["get", "selected"], "#182f3b", "#fafaf7"],
           "circle-stroke-width": ["case", ["get", "selected"], 2, 1.25],
           "circle-opacity": 1,
         },
@@ -455,7 +456,7 @@ export default function MapView({
       const isSelected = vessel.id === selectedVesselId;
       const h = isSelected ? 34 : score >= RISK_THRESHOLDS.verify ? 28 : 20;
       const course = vessel.latest_position.course_over_ground ?? 0;
-      const strokeColor = isSelected ? "#cbd5e1" : "rgba(0,0,0,0.7)";
+      const strokeColor = isSelected ? "#182f3b" : "#fafaf7";
       const strokeWidth = isSelected ? 1.6 : 0.6;
       const vesselType = vessel.vessel_type ?? "other";
       const { hull, deck, bridge, viewBox, ratio } = vesselSvgPaths(vesselType);
@@ -568,7 +569,7 @@ export default function MapView({
         ...(!isDemo ? {
           transformConstrain: constrainLiveMap,
           bounds: WORLD_BOUNDS,
-          fitBoundsOptions: { padding: { top: mapContainer.current.clientWidth < 640 ? 132 : 84, bottom: 80, left: 24, right: 24 } },
+          fitBoundsOptions: { padding: { top: window.innerWidth < 1024 ? 124 : 24, bottom: window.innerWidth < 1024 ? 112 : 64, left: 24, right: 24 } },
         } : mapContainer.current.clientWidth < 640 ? {
           bounds: [[-118.325, 33.66], [-118.205, 33.76]] as [[number, number], [number, number]],
           fitBoundsOptions: { padding: { top: 140, bottom: 180, left: 24, right: 60 } },
@@ -583,7 +584,7 @@ export default function MapView({
 
     mapRef.current = map;
     const tooltip = document.createElement("div");
-    tooltip.className = "pointer-events-none absolute z-20 max-w-[240px] rounded border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-100 shadow-lg";
+    tooltip.className = "pointer-events-none absolute z-20 max-w-[240px] border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 py-2 text-sm text-[var(--workspace-ink)]";
     tooltip.setAttribute("role", "tooltip");
     tooltip.style.display = "none";
     map.getContainer().appendChild(tooltip);
@@ -662,6 +663,7 @@ export default function MapView({
       setZoomLevel(map.getZoom());
       map.addControl(new maplibregl.NavigationControl(), "top-right");
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+      map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: "nautical" }), "bottom-left");
       const center = map.getCenter();
       centerChangeRef.current?.([center.lng, center.lat]);
       reportViewport();
@@ -743,7 +745,7 @@ export default function MapView({
     if (!flyTo || !mapRef.current) return;
     if (!isDemo && flyTo.zoom === 2) {
       mapRef.current.fitBounds(WORLD_BOUNDS, {
-        padding: { top: mapRef.current.getContainer().clientWidth < 640 ? 132 : 84, bottom: 80, left: 24, right: 24 },
+        padding: { top: window.innerWidth < 1024 ? 124 : 24, bottom: window.innerWidth < 1024 ? 112 : 64, left: 24, right: 24 },
         duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
       });
       return;
@@ -877,12 +879,12 @@ export default function MapView({
   }, [satelliteOverlay, mapMode, satelliteStyleKey, styleVersion]);
 
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0 lg:left-[300px]">
       <div
         ref={mapContainer}
         role="application"
         aria-label={`Vessel tracking map · ${vessels.length} tracked vessel${vessels.length === 1 ? "" : "s"}. Use the alert queue or search (Cmd+K) to select a vessel.`}
-        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%", background: mapMode === "dark" ? "#122631" : "#080d12" }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%", background: mapMode === "chart" ? "#dbe6e8" : "#18282f" }}
       />
       {mapUnavailable && (
         <div role="status" className="absolute inset-0 flex items-center justify-center px-6">
@@ -894,18 +896,18 @@ export default function MapView({
       )}
       {/* Base map toggle */}
       <div ref={styleMenuRef} aria-label="Map style" className="absolute bottom-[var(--map-tools-bottom)] right-3 z-10">
-        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-52 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5 shadow-lg">
+        {styleMenuOpen && <div id="map-style-options" className="mb-2 w-52 border border-[var(--workspace-border)] bg-[var(--workspace-surface)] p-1.5">
           <p className="px-3 py-2 text-xs font-medium text-slate-400">Map style</p>
-          {([['dark', 'Map'], ['maps', 'Hybrid'], ['satellite', 'Satellite']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mapMode === value} onClick={() => { setMapMode(value); setStyleMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between rounded px-3 text-sm ${mapMode === value ? "bg-white/[0.07] text-white" : "text-slate-300 hover:bg-white/[0.04]"}`}>{label}{mapMode === value && <span aria-hidden="true">✓</span>}</button>)}
+          {([['chart', 'Chart'], ['maps', 'Hybrid'], ['satellite', 'Satellite']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mapMode === value} onClick={() => { setMapMode(value); setStyleMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between px-3 text-sm ${mapMode === value ? "bg-[var(--workspace-subtle)] text-[var(--workspace-ink)]" : "text-[var(--workspace-muted)] hover:bg-[var(--workspace-subtle)]"}`}>{label}{mapMode === value && <span aria-hidden="true">✓</span>}</button>)}
           <div className="mt-1 border-t border-[var(--workspace-border)] px-3 py-3 text-xs text-slate-300">
             <p className="mb-2 text-slate-400">Vessel risk score</p>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              {([["#8da5b7", "Below 35"], ["#f59e0b", "35–59"], ["#f97316", "60–79"], ["#ef4444", "80–100"]] as const).map(([color, label]) => <span key={label} className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />{label}</span>)}
+              {([[0, "Below 35"], [35, "35–59"], [60, "60–79"], [80, "80–100"]] as const).map(([score, label]) => <span key={label} className="flex items-center gap-2"><span className="h-2 w-2" style={{ backgroundColor: vesselColor(score) }} />{label}</span>)}
             </div>
             <p className="mt-2 text-slate-400">Based on detected behavior.</p>
           </div>
         </div>}
-        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 rounded-md border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40">
+        <button type="button" aria-label="Change map style" aria-expanded={styleMenuOpen} aria-controls="map-style-options" disabled={mapUnavailable} onClick={() => setStyleMenuOpen(!styleMenuOpen)} className="flex min-h-11 min-w-11 items-center gap-2 border border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 text-sm text-[var(--workspace-ink)] hover:bg-[var(--workspace-subtle)] disabled:opacity-40">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" /></svg>
           <span className="hidden min-[360px]:inline">Map style</span>
         </button>
