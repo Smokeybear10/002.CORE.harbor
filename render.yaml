@@ -1,0 +1,30 @@
+previews:
+  generation: "off"
+
+services:
+  - type: web
+    name: h4bor-live-free
+    runtime: python
+    plan: free
+    region: oregon
+    branch: master
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: AISSTREAM_API_KEY
+        sync: false
+      - key: HARBOROS_AIS_REGIONS
+        value: la_harbor
+      - key: HARBOROS_CORS_ORIGINS
+        value: https://h4bor.vercel.app
+      - key: HARBOROS_DB
+        value: /tmp/h4bor/harboros.db
+      - key: HARBOROS_ARCHIVE_DIR
+        value: /tmp/h4bor/positions
+      - key: HARBOROS_MAX_ARCHIVE_MB
+        value: "5"
