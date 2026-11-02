@@ -288,6 +288,7 @@ export interface PaginatedResponse<T> {
   total: number;
   limit: number;
   offset: number;
+  last_report_at?: string | null;
 }
 
 export interface AlertAudit {
