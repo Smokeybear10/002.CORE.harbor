@@ -1,11 +1,14 @@
 """Alert generation and management service."""
 
 from __future__ import annotations
+from collections import defaultdict
 from datetime import datetime, timedelta
 import json
 import logging
+import math
 import uuid
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.domain import (
@@ -18,11 +21,18 @@ from app.services.anomaly_detection import run_anomaly_detection, compute_region
 from app.services.risk_scoring import compute_risk_assessment
 from app.services.pattern_learning import get_learned_baseline, refresh_baseline
 from app.data_sources.nws_adapter import get_weather
+from app.services.map_coverage import MapBounds, vessels_in_bounds
 
 logger = logging.getLogger("harboros.alerts")
 
 
-def generate_alerts_for_all_vessels(db: Session) -> list[AlertORM]:
+def generate_alerts_for_all_vessels(
+    db: Session,
+    vessel_limit: int | None = None,
+    vessel_offset: int = 0,
+    observed_since: datetime | None = None,
+    coverage_windows: list[tuple[MapBounds, datetime]] | None = None,
+) -> list[AlertORM]:
     """Run detection + scoring for all vessels, create/update alerts.
 
     Includes:
@@ -31,7 +41,63 @@ def generate_alerts_for_all_vessels(db: Session) -> list[AlertORM]:
     - Nearby-vessel data (collision risk)
     - Learned historical baselines (route deviation, pattern matching)
     """
-    vessels = db.query(VesselORM).all()
+    latest_times = db.query(
+        PositionReportORM.vessel_id,
+        func.max(PositionReportORM.timestamp).label("timestamp"),
+    ).group_by(PositionReportORM.vessel_id).subquery()
+    latest_rows = db.query(PositionReportORM, VesselORM.name).join(
+        latest_times,
+        (PositionReportORM.vessel_id == latest_times.c.vessel_id)
+        & (PositionReportORM.timestamp == latest_times.c.timestamp),
+    ).join(VesselORM, VesselORM.id == PositionReportORM.vessel_id).all()
+    latest_positions = {}
+    observation_starts = {}
+    for latest, name in latest_rows:
+        started = observed_since
+        if coverage_windows is not None:
+            starts = [
+                since for bounds, since in coverage_windows
+                if bounds.south <= latest.latitude <= bounds.north
+                and (
+                    bounds.west <= latest.longitude <= bounds.east
+                    if bounds.west <= bounds.east
+                    else latest.longitude >= bounds.west or latest.longitude <= bounds.east
+                )
+            ]
+            if not starts:
+                continue
+            started = min(starts)
+        if started is not None and latest.timestamp < started:
+            continue
+        observation_starts[latest.vessel_id] = started
+        latest_positions[latest.vessel_id] = (
+            latest.vessel_id, latest.latitude, latest.longitude,
+            latest.speed_over_ground, latest.course_over_ground, name,
+        )
+
+    vessel_query = db.query(VesselORM)
+    if vessel_limit or coverage_windows is not None or observed_since is not None:
+        vessel_ids = sorted(latest_positions)
+        if vessel_limit:
+            batches = max(1, (len(vessel_ids) + vessel_limit - 1) // vessel_limit)
+            offset = (vessel_offset // vessel_limit % batches) * vessel_limit
+            vessel_ids = vessel_ids[offset:offset + vessel_limit]
+        vessel_query = vessel_query.filter(VesselORM.id.in_(vessel_ids))
+    vessels = vessel_query.order_by(VesselORM.id).all()
+    vessel_ids = [vessel.id for vessel in vessels]
+    positions_by_vessel = defaultdict(list)
+    positions = db.query(PositionReportORM).filter(
+        PositionReportORM.vessel_id.in_(vessel_ids),
+    ).order_by(PositionReportORM.timestamp).all()
+    for position in positions:
+        started = observation_starts.get(position.vessel_id)
+        if started is None or position.timestamp >= started:
+            positions_by_vessel[position.vessel_id].append(position)
+    active_alerts = {
+        alert.vessel_id: alert for alert in db.query(AlertORM).filter(
+            AlertORM.vessel_id.in_(vessel_ids), AlertORM.status == "active",
+        ).all()
+    }
     geofences = db.query(GeofenceORM).all()
     alerts_created = []
 
@@ -50,37 +116,29 @@ def generate_alerts_for_all_vessels(db: Session) -> list[AlertORM]:
         logger.info("Initializing learned baselines from historical data...")
         refresh_baseline(db)
 
-    # Pre-compute latest positions for all vessels (for collision risk)
-    latest_positions = {}
-    for v in vessels:
-        latest = (
-            db.query(PositionReportORM)
-            .filter(PositionReportORM.vessel_id == v.id)
-            .order_by(PositionReportORM.timestamp.desc())
-            .first()
-        )
-        if latest:
-            latest_positions[v.id] = (
-                v.id, latest.latitude, latest.longitude,
-                latest.speed_over_ground, latest.course_over_ground, v.name
-            )
     nearby_list = list(latest_positions.values())
 
-    # Fetch weather conditions (batched by grid cell via adapter cache)
+    weather_cells = {}
+    for _, lat, lon, *_ in nearby_list:
+        if 15 <= lat <= 72 and -180 <= lon <= -60:
+            weather_cells.setdefault((round(lat * 2) / 2, round(lon * 2) / 2), (lat, lon))
+    cells = [weather_cells[key] for key in sorted(weather_cells)]
+    if cells:
+        weather_offset = (vessel_offset // (vessel_limit or 500) * 4) % len(cells)
+        for index in range(min(4, len(cells))):
+            lat, lon = cells[(weather_offset + index) % len(cells)]
+            get_weather(lat, lon)
+
     weather_by_vessel: dict[str, object] = {}
-    for v_id, (_, lat, lon, *_rest) in latest_positions.items():
-        try:
-            weather_by_vessel[v_id] = get_weather(lat, lon)
-        except Exception:
-            weather_by_vessel[v_id] = None
+    for vessel in vessels:
+        latest = latest_positions.get(vessel.id)
+        if latest:
+            _, lat, lon, *_ = latest
+            weather_by_vessel[vessel.id] = get_weather(lat, lon, cached_only=True)
 
     for vessel in vessels:
-        positions = (
-            db.query(PositionReportORM)
-            .filter(PositionReportORM.vessel_id == vessel.id)
-            .order_by(PositionReportORM.timestamp)
-            .all()
-        )
+        positions = positions_by_vessel[vessel.id]
+        existing = active_alerts.get(vessel.id)
 
         # Skip edge node vessels — their alerts are managed by the edge endpoint
         if vessel.id.startswith("dark-") or vessel.id.startswith("seapod-"):
@@ -90,22 +148,27 @@ def generate_alerts_for_all_vessels(db: Session) -> list[AlertORM]:
         if vessel.id in ("v-jade-star", "v-dark-optical-1", "v-dark-horizon"):
             continue
 
-        if not positions:
-            # Resolve any ghost alerts for vessels with no position data
-            ghost_alert = (
-                db.query(AlertORM)
-                .filter(AlertORM.vessel_id == vessel.id, AlertORM.status == "active")
-                .first()
-            )
-            if ghost_alert:
-                ghost_alert.status = "resolved"
-                ghost_alert.explanation = "No position data available for behavioral assessment."
+        if existing and (coverage_windows is not None or observed_since is not None) and len(positions) < 3:
             continue
 
+        if not positions:
+            # Resolve any ghost alerts for vessels with no position data
+            if existing:
+                existing.status = "resolved"
+                existing.explanation = "No position data available for behavioral assessment."
+            continue
+
+        latest = positions[-1]
+        longitude_margin = 0.026 / max(math.cos(math.radians(latest.latitude)), 0.001)
+        nearby = [
+            other for other in nearby_list
+            if abs(other[1] - latest.latitude) <= 0.026
+            and abs((other[2] - latest.longitude + 180) % 360 - 180) <= longitude_margin
+        ]
         signals = run_anomaly_detection(
             vessel, positions, geofences,
             regional_stats=regional_stats,
-            nearby_vessels=nearby_list,
+            nearby_vessels=nearby,
             learned_baseline=learned,
             weather=weather_by_vessel.get(vessel.id),
         )
@@ -118,13 +181,6 @@ def generate_alerts_for_all_vessels(db: Session) -> list[AlertORM]:
             risk_score=assessment.risk_score,
             recommended_action=assessment.recommended_action,
         ))
-
-        # Check for existing active alert FIRST so we can clear it if risk drops
-        existing = (
-            db.query(AlertORM)
-            .filter(AlertORM.vessel_id == vessel.id, AlertORM.status == "active")
-            .first()
-        )
 
         # Skip low-confidence assessments, but clear active alerts if they exist
         if assessment.risk_score < 35:
@@ -188,6 +244,7 @@ def get_alerts(
     region: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    bounds: MapBounds | None = None,
 ) -> tuple[list[AlertSchema], int]:
     """Get alerts with vessel info, sorted by risk score desc (paginated)."""
     query = db.query(AlertORM).join(VesselORM)
@@ -195,6 +252,8 @@ def get_alerts(
         query = query.filter(AlertORM.status == status)
     if region:
         query = query.filter(VesselORM.region == region)
+    if bounds:
+        query = query.filter(VesselORM.id.in_(vessels_in_bounds(db, bounds)))
     query = query.order_by(AlertORM.risk_score.desc())
 
     total = query.count()

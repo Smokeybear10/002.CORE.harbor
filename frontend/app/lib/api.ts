@@ -8,6 +8,25 @@ export function getDataMode(value: string | null): DataMode {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api";
 export const IS_FREE_HOSTED_API = process.env.NEXT_PUBLIC_API_HOSTING === "render-free";
 
+export type MapBounds = { west: number; south: number; east: number; north: number };
+export type MapCoverage = {
+  state: "watching" | "zoom_in" | "busy" | "superseded";
+  subscribed: boolean;
+  expires_in: number;
+};
+
+export function canWatchMap(bounds: MapBounds): boolean {
+  const width = (bounds.east - bounds.west + 360) % 360 || 360;
+  const height = bounds.north - bounds.south;
+  return width <= 32 && height <= 24 && width * height <= 256;
+}
+
+export const watchMapCoverage = (clientId: string, revision: number, bounds: MapBounds | null) =>
+  fetchAPI<MapCoverage>("/map/coverage", {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId, revision, bounds }),
+  });
+
 // The FastAPI backend is hosted separately from this frontend. When it's down the
 // browser throws an opaque TypeError, so surface the actual cause to the operator.
 const OFFLINE_MESSAGE =
@@ -339,21 +358,23 @@ export interface SatelliteSearchParams {
 // ── API Functions ─────────────────────────────────────
 
 const liveApi = {
-  getRegions: () => fetchAPI<Record<string, Region>>("/regions"),
-  getVessels: (region?: string, limit = 500, offset = 0) => {
+  getRegions: () => fetchAPI<Record<string, Region>>("/regions?explore=true"),
+  getVessels: (region?: string, limit = 500, offset = 0, bounds?: MapBounds) => {
     const params = new URLSearchParams();
     if (region) params.set("region", region);
     params.set("limit", String(limit));
     params.set("offset", String(offset));
+    if (bounds) params.set("bounds", JSON.stringify(bounds));
     return fetchAPI<PaginatedResponse<Vessel>>(`/vessels?${params}`);
   },
   getVesselDetail: (id: string) => fetchAPI<VesselDetail>(`/vessels/${id}`),
-  getAlerts: (status?: string, region?: string, limit = 500, offset = 0) => {
+  getAlerts: (status?: string, region?: string, limit = 500, offset = 0, bounds?: MapBounds) => {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
     if (region) params.set("region", region);
     params.set("limit", String(limit));
     params.set("offset", String(offset));
+    if (bounds) params.set("bounds", JSON.stringify(bounds));
     return fetchAPI<PaginatedResponse<Alert>>(`/alerts?${params}`);
   },
   getAlertDetail: (id: string) => fetchAPI<Alert>(`/alerts/${id}`),

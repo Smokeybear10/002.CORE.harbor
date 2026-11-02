@@ -13,10 +13,13 @@ import asyncio
 import json
 import logging
 import os
+from contextlib import suppress
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 
 import websockets
+
+from app.services.map_coverage import MapBounds, ViewportSubscriptions
 
 logger = logging.getLogger("harboros.aisstream")
 
@@ -161,6 +164,12 @@ class AISStreamClient:
         # Build bounding boxes from selected regions
         self.active_regions = {k: REGIONS[k] for k in self.region_keys if k in REGIONS}
         self.bounding_boxes = [r["bbox"] for r in self.active_regions.values()]
+        self.viewports = ViewportSubscriptions()
+        self.applied_boxes: list[list[list[float]]] = []
+        self._pending_boxes: list[list[list[float]]] | None = None
+        self._confirmed = False
+        self.coverage_started: datetime | None = None
+        self.coverage_windows: list[tuple[MapBounds, datetime]] = []
         self._ws = None
         self._running = False
         self.stats = {
@@ -178,19 +187,60 @@ class AISStreamClient:
 
     @property
     def is_connected(self) -> bool:
-        return self._ws is not None and self._running
+        return self._ws is not None and self._running and self._confirmed
+
+    def desired_boxes(self) -> list[list[list[float]]]:
+        return self.viewports.boxes() or self.bounding_boxes
 
     def _build_subscription(self) -> str:
         """Build the subscription message for AISStream."""
         return json.dumps({
             "APIKey": self.api_key,
-            "BoundingBoxes": self.bounding_boxes,
+            "BoundingBoxes": self.desired_boxes(),
             "FilterMessageTypes": [
                 "PositionReport",
                 "ShipStaticData",
                 "StandardClassBPositionReport",
             ],
         })
+
+    def _confirm_subscription(self) -> None:
+        if self._pending_boxes is None:
+            return
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        windows = []
+        for box in self._pending_boxes:
+            south, west = box[0]
+            north, east = box[1]
+            if south >= north or west >= east:
+                continue
+            bounds = MapBounds(west=west, south=south, east=east, north=north)
+            started = min((
+                since for previous, since in self.coverage_windows
+                if previous.west <= west and east <= previous.east
+                and previous.south <= south and north <= previous.north
+            ), default=now)
+            windows.append((bounds, started))
+        self.coverage_windows = windows
+        self.coverage_started = min((since for _, since in windows), default=now)
+        self.applied_boxes = self._pending_boxes
+        self._pending_boxes = None
+        self._confirmed = True
+
+    async def _update_subscription(self, ws) -> None:
+        pending_since = asyncio.get_running_loop().time()
+        while self._running:
+            await asyncio.sleep(2)
+            if self._pending_boxes is not None:
+                if asyncio.get_running_loop().time() - pending_since > 15:
+                    await ws.close()
+                    return
+                continue
+            boxes = self.desired_boxes()
+            if boxes != self.applied_boxes:
+                self._pending_boxes = boxes
+                pending_since = asyncio.get_running_loop().time()
+                await ws.send(self._build_subscription())
 
     async def connect(self) -> AsyncGenerator[dict, None]:
         """
@@ -214,6 +264,11 @@ class AISStreamClient:
                 logger.info("Connecting to AISStream WebSocket...")
                 async with websockets.connect(AISSTREAM_WS_URL, compression="deflate") as ws:
                     self._ws = ws
+                    self._confirmed = False
+                    self.applied_boxes = []
+                    self.coverage_windows = []
+                    self.coverage_started = None
+                    self._pending_boxes = self.desired_boxes()
                     self.stats["connected_since"] = datetime.now(timezone.utc).isoformat()
                     retry_delay = 1  # Reset on successful connection
 
@@ -223,23 +278,34 @@ class AISStreamClient:
                         f"Subscribed to AISStream with {len(self.bounding_boxes)} bounding box(es)"
                     )
 
-                    async for raw_msg in ws:
-                        if not self._running:
-                            break
-
-                        try:
-                            msg = json.loads(raw_msg)
-                            self.stats["messages_received"] += 1
-                            parsed = self._parse_message(msg)
-                            if parsed:
-                                yield parsed
-                        except json.JSONDecodeError:
-                            self.stats["errors"] += 1
-                            continue
-                        except Exception as e:
-                            self.stats["errors"] += 1
-                            logger.warning(f"Error parsing AIS message: {e}")
-                            continue
+                    subscription_task = asyncio.create_task(self._update_subscription(ws))
+                    try:
+                        async for raw_msg in ws:
+                            if not self._running:
+                                break
+                            try:
+                                msg = json.loads(raw_msg)
+                                if msg.get("MessageType") == "SubscriptionConfirmation":
+                                    self._confirm_subscription()
+                                    continue
+                                if "error" in msg or "Error" in msg:
+                                    self.stats["errors"] += 1
+                                    logger.warning("AISStream rejected the subscription")
+                                    await ws.close()
+                                    break
+                                self.stats["messages_received"] += 1
+                                parsed = self._parse_message(msg)
+                                if parsed:
+                                    yield parsed
+                            except json.JSONDecodeError:
+                                self.stats["errors"] += 1
+                            except Exception as e:
+                                self.stats["errors"] += 1
+                                logger.warning(f"Error parsing AIS message: {e}")
+                    finally:
+                        subscription_task.cancel()
+                        with suppress(asyncio.CancelledError, websockets.exceptions.ConnectionClosed):
+                            await subscription_task
 
             except websockets.exceptions.ConnectionClosed as e:
                 logger.warning(f"AISStream connection closed: {e}")
@@ -248,6 +314,10 @@ class AISStreamClient:
                 self.stats["errors"] += 1
 
             self._ws = None
+            self._confirmed = False
+            self.applied_boxes = []
+            self.coverage_windows = []
+            self.coverage_started = None
 
             if self._running:
                 logger.info(f"Reconnecting in {retry_delay}s...")
@@ -256,7 +326,7 @@ class AISStreamClient:
 
     def classify_region(self, lat: float, lon: float) -> str | None:
         """Determine which named region a coordinate belongs to."""
-        for key, region in self.active_regions.items():
+        for key, region in REGIONS.items():
             bbox = region["bbox"]
             if bbox[0][0] <= lat <= bbox[1][0] and bbox[0][1] <= lon <= bbox[1][1]:
                 return key
@@ -274,6 +344,8 @@ class AISStreamClient:
         timestamp_str = meta.get("time_utc", "")
         try:
             timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
         except (ValueError, AttributeError):
             timestamp = datetime.now(timezone.utc)
 

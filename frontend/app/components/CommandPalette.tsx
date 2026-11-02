@@ -47,7 +47,7 @@ export default function CommandPalette({
       { kind: "action", label: "Toggle analytics", run: onToggleAnalytics, shortcut: "A" },
     ];
     if (Object.keys(regions).length > 1) {
-      actions.push({ kind: "action", label: "Show all monitored regions", run: () => onSelectRegion(null) });
+      actions.push({ kind: "action", label: "Open world map", run: () => onSelectRegion(null) });
     }
     for (const a of actions) {
       if (!q || a.label.toLowerCase().includes(q)) out.push(a);

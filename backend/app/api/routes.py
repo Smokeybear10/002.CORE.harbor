@@ -8,6 +8,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
+
+from app.services.map_coverage import CoverageRequest, MapBounds, vessels_in_bounds
 def _classify_vessel_status(
     positions: list,
     min_stationary_reports: int = 3,
@@ -183,10 +186,11 @@ def _serialize_verification_request(vr: VerificationRequestORM) -> VerificationR
 # ── Regions ────────────────────────────────────────────
 
 @router.get("/regions")
-def list_regions():
+def list_regions(explore: bool = False):
     """List the regions this deployment monitors."""
     from app.services.ingestion_service import get_ingestion_service
-    regions = get_ingestion_service().client.active_regions
+    from app.data_sources.aisstream_adapter import REGIONS
+    regions = {key: region for key, region in REGIONS.items() if key != "seapod_live"} if explore else get_ingestion_service().client.active_regions
     return {
         key: {
             "name": r["name"],
@@ -201,15 +205,40 @@ def list_regions():
 
 # ── Vessels ────────────────────────────────────────────
 
+def _parse_map_bounds(bounds: str | None) -> MapBounds | None:
+    if bounds is None:
+        return None
+    try:
+        return MapBounds.model_validate_json(bounds)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Invalid map bounds") from None
+
+
+@router.post("/map/coverage")
+async def update_map_coverage(request: CoverageRequest):
+    from app.services.ingestion_service import get_ingestion_service
+    service = get_ingestion_service()
+    client = service.client
+    state = client.viewports.update(request)
+    subscribed = state == "watching" and client.is_connected and all(
+        box in client.applied_boxes for box in request.bounds.boxes()
+    )
+    return {"state": state, "subscribed": subscribed, "expires_in": 45}
+
 @router.get("/vessels")
 def list_vessels(
     region: str | None = Query(None, description="Filter by region key"),
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0),
+    bounds: str | None = Query(None, max_length=250),
     db: Session = Depends(get_db),
 ):
     """List vessels with latest position and risk info (paginated)."""
     base_query = db.query(VesselORM)
+    viewport = _parse_map_bounds(bounds)
+    visible_ids = vessels_in_bounds(db, viewport) if viewport else None
+    if visible_ids is not None:
+        base_query = base_query.filter(VesselORM.id.in_(visible_ids))
     if region:
         base_query = base_query.filter(VesselORM.region == region)
     total = base_query.count()
@@ -238,6 +267,8 @@ def list_vessels(
     )
     if region:
         rows = rows.filter(VesselORM.region == region)
+    if visible_ids is not None:
+        rows = rows.filter(VesselORM.id.in_(visible_ids))
         
     rows = rows.order_by(
         AlertORM.risk_score.desc().nulls_last(),
@@ -561,10 +592,12 @@ def list_alerts(
     region: str | None = Query(None, description="Filter by region key"),
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0),
+    bounds: str | None = Query(None, max_length=250),
     db: Session = Depends(get_db),
 ):
     """List alerts sorted by severity (paginated)."""
-    alerts, total = get_alerts(db, status=status, region=region, limit=limit, offset=offset)
+    viewport = _parse_map_bounds(bounds)
+    alerts, total = get_alerts(db, status=status, region=region, limit=limit, offset=offset, bounds=viewport)
     return {"items": alerts, "total": total, "limit": limit, "offset": offset}
 
 

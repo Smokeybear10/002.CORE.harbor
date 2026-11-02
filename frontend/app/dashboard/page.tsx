@@ -14,7 +14,7 @@ import IngestBanner from "@/app/components/IngestBanner";
 import ShortcutOverlay from "@/app/components/ShortcutOverlay";
 import type { ToastItem } from "@/app/components/Toast";
 import type { SatelliteOverlay } from "@/app/components/MapView";
-import { getDataMode, type DataMode } from "@/app/lib/api";
+import { canWatchMap, getDataMode, watchMapCoverage, type DataMode, type MapBounds, type MapCoverage } from "@/app/lib/api";
 import { DataSourceProvider, useDataSource } from "@/app/lib/data-source";
 import { DEMO_DURATION_MS, DEMO_PLAYBACK_RATE, getDemoElapsed, setDemoElapsed } from "@/app/lib/demo-api";
 import type { Vessel, VesselDetail, Alert, Geofence, IngestionStatus, Region, RiskDistribution } from "@/app/lib/api";
@@ -83,7 +83,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const alertsLimitRef = useRef(50);
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [regions, setRegions] = useState<Record<string, Region>>({});
-  const [activeRegion, setActiveRegion] = useState<string | null>("la_harbor");
+  const [activeRegion, setActiveRegion] = useState<string | null>(isDemo ? "la_harbor" : null);
   const [selectedVessel, setSelectedVessel] = useState<VesselDetail | null>(null);
   const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,6 +91,11 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const [mapTarget, setMapTarget] = useState<{ center: [number, number]; zoom: number; _t?: number } | null>(null);
   const [satelliteOverlay, setSatelliteOverlay] = useState<SatelliteOverlay | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
+  const [viewport, setViewport] = useState<MapBounds | null>(null);
+  const [coverage, setCoverage] = useState<MapCoverage | null>(null);
+  const [vesselsTotal, setVesselsTotal] = useState(0);
+  const viewerIdRef = useRef<string | null>(null);
+  const viewportRevisionRef = useRef(0);
   const [mapClickFocus, setMapClickFocus] = useState<[number, number] | null>(null);
   const [alertStatusFilter, setAlertStatusFilter] = useState<string>("active");
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -133,8 +138,8 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     async function loadData() {
       try {
         const [v, a, g, r, status] = await Promise.all([
-          api.getVessels("la_harbor"),
-          api.getAlerts("active", "la_harbor"),
+          isDemo ? api.getVessels("la_harbor") : { items: [], total: 0 },
+          isDemo ? api.getAlerts("active", "la_harbor") : { items: [], total: 0 },
           api.getGeofences(),
           api.getRegions(),
           api.getIngestionStatus().catch(() => null),
@@ -155,7 +160,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
       }
     }
     loadData();
-  }, [api]);
+  }, [api, isDemo]);
 
   useEffect(() => {
     if (!isDemo) return;
@@ -211,9 +216,13 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   // Auto-refresh — pauses when tab hidden, skips state updates when payload is unchanged.
   useEffect(() => {
     if (refreshTimer.current) clearInterval(refreshTimer.current);
-    if (isDemo || loading) return;
+    if (isDemo || loading || !viewport) return;
     let cancelled = false;
     let refreshing = false;
+    viewerIdRef.current ??= crypto.randomUUID();
+    const viewerId = viewerIdRef.current;
+    const revision = ++viewportRevisionRef.current;
+    const bounds = canWatchMap(viewport) ? viewport : null;
 
     const tick = async () => {
       if (refreshing) return;
@@ -221,10 +230,13 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       refreshing = true;
       try {
-        const regionParam = activeRegion || undefined;
+        const nextCoverage = await watchMapCoverage(viewerId, revision, bounds);
+        if (cancelled) return;
+        setCoverage(nextCoverage);
+        const watching = nextCoverage.state === "watching" && bounds !== null;
         const [v, a, status] = await Promise.all([
-          api.getVessels(regionParam),
-          api.getAlerts(alertStatusFilter || undefined, regionParam, alertsLimitRef.current),
+          watching ? api.getVessels(undefined, 500, 0, bounds) : { items: [], total: 0 },
+          watching ? api.getAlerts(alertStatusFilter || undefined, undefined, alertsLimitRef.current, 0, bounds) : { items: [], total: 0 },
           api.getIngestionStatus().catch(() => null),
         ]);
         if (cancelled) return;
@@ -237,6 +249,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         // Skip state update (and the map marker diff pass it triggers) if nothing changed.
         setVessels((prev) => (shallowVesselListEqual(prev, v.items) ? prev : v.items));
         liveVesselsRef.current = v.items;
+        setVesselsTotal(v.total);
         setAlerts((prev) => (shallowAlertListEqual(prev, a.items) ? prev : a.items));
         setAlertsTotal(a.total);
         setIngestionStatus(status);
@@ -255,9 +268,27 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
       }
     };
 
+    const initialTick = setTimeout(tick, 650);
     refreshTimer.current = setInterval(tick, REFRESH_INTERVAL_MS);
-    return () => { cancelled = true; if (refreshTimer.current) clearInterval(refreshTimer.current); };
-  }, [activeRegion, alertStatusFilter, api, connectionOk, isDemo, loading, regions, selectedVesselId, showToast]);
+    const handleVisibility = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      cancelled = true;
+      clearTimeout(initialTick);
+      if (refreshTimer.current) clearInterval(refreshTimer.current);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [viewport, alertStatusFilter, api, connectionOk, isDemo, loading, regions, selectedVesselId, showToast]);
+
+  const handleViewportChange = useCallback((bounds: MapBounds, manual: boolean) => {
+    if (isDemo) return;
+    setViewport(bounds);
+    setCoverage(null);
+    setVessels([]);
+    setVesselsTotal(0);
+    setAlerts([]);
+    if (manual) setActiveRegion(null);
+  }, [isDemo]);
 
   // Region change handler
   const handleRegionChange = useCallback(async (regionKey: string | null) => {
@@ -270,13 +301,14 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     // Fly to the region
     if (regionKey && regions[regionKey]) {
       const r = regions[regionKey];
-      setMapTarget({ center: [r.center[1], r.center[0]], zoom: r.zoom, _t: Date.now() });
+      setMapTarget({ center: [r.center[1], r.center[0]], zoom: isDemo ? r.zoom : Math.max(r.zoom, 7), _t: Date.now() });
     } else {
       // "All regions" — zoom out to world view
       setMapTarget({ center: [20, 0], zoom: 2, _t: Date.now() });
     }
 
-    // Fetch filtered data immediately
+    if (!isDemo) return;
+    // Fetch filtered demo data immediately
     try {
       const regionParam = regionKey || undefined;
       const [v, a] = await Promise.all([
@@ -287,7 +319,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
       setAlerts(a.items);
       setAlertsTotal(a.total);
     } catch {}
-  }, [regions, api, alertStatusFilter]);
+  }, [regions, api, alertStatusFilter, isDemo]);
 
   const handleSelectVessel = useCallback(async (vesselId: string) => {
     // Cancel any pending close animation
@@ -351,14 +383,14 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
 
   const handleLoadMoreAlerts = useCallback(async () => {
     try {
-      const regionParam = activeRegion || undefined;
+      const regionParam = isDemo ? activeRegion || undefined : undefined;
       const newLimit = alerts.length + 50;
-      const a = await api.getAlerts(alertStatusFilter || undefined, regionParam, newLimit);
+      const a = await api.getAlerts(alertStatusFilter || undefined, regionParam, newLimit, 0, !isDemo && viewport ? viewport : undefined);
       alertsLimitRef.current = newLimit;
       setAlerts(a.items);
       setAlertsTotal(a.total);
     } catch {}
-  }, [activeRegion, alerts.length, api, alertStatusFilter]);
+  }, [activeRegion, alerts.length, api, alertStatusFilter, isDemo, viewport]);
 
   const handleCloseDetail = useCallback(() => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -457,6 +489,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         satelliteOverlay={satelliteOverlay}
         onMapCenterChange={setMapCenter}
         onMapClick={setMapClickFocus}
+        onViewportChange={handleViewportChange}
       />
 
       {/* Floating top strip */}
@@ -485,6 +518,9 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         connectionOk={connectionOk}
         loading={loading}
         onDemo={() => onModeChange("demo")}
+        coverage={coverage}
+        zoomRequired={!isDemo && viewport !== null && !canWatchMap(viewport)}
+        vesselsTotal={vesselsTotal}
       />
 
       {/* Alert peeks, bottom-left */}
