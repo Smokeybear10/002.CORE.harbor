@@ -223,7 +223,7 @@ async def update_map_coverage(request: CoverageRequest):
     subscribed = state == "watching" and client.is_connected and all(
         box in client.applied_boxes for box in request.bounds.boxes()
     )
-    return {"state": state, "subscribed": subscribed, "expires_in": 45}
+    return {"state": state, "subscribed": subscribed, "expires_in": request.lease_seconds}
 
 @router.get("/vessels")
 def list_vessels(
@@ -428,112 +428,145 @@ def get_vessel_detail(vessel_id: str, db: Session = Depends(get_db)):
 
 # ── Risk Assessment ────────────────────────────────────
 
+def _utc_time(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+
+def _position_record(position: PositionReportORM) -> dict:
+    record = PositionReportSchema.model_validate(position).model_dump(mode="json")
+    record["timestamp"] = position.timestamp.replace(tzinfo=timezone.utc).isoformat()
+    return record
+
+
+@router.get("/vessels/{vessel_id}/positions")
+def get_vessel_positions(
+    vessel_id: str,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    if not db.get(VesselORM, vessel_id):
+        raise HTTPException(status_code=404, detail="Vessel not found")
+    start = _utc_time(since) if since else None
+    end = _utc_time(until) if until else None
+    if start and end and start > end:
+        raise HTTPException(status_code=422, detail="since must be before until")
+    query = db.query(PositionReportORM).filter(PositionReportORM.vessel_id == vessel_id)
+    if start:
+        query = query.filter(PositionReportORM.timestamp >= start)
+    if end:
+        query = query.filter(PositionReportORM.timestamp <= end)
+    total = query.count()
+    positions = query.order_by(PositionReportORM.timestamp.desc(), PositionReportORM.id.desc()).offset(offset).limit(limit).all()
+    return {"items": [_position_record(p) for p in positions], "total": total, "limit": limit, "offset": offset}
+
+
 @router.get("/vessels/{vessel_id}/report")
-def get_vessel_report(vessel_id: str, db: Session = Depends(get_db)):
-    """Generate a comprehensive incident report for a vessel."""
-    vessel = db.query(VesselORM).filter(VesselORM.id == vessel_id).first()
+def get_vessel_report(
+    vessel_id: str,
+    position_before: datetime | None = None,
+    position_before_id: int | None = Query(None, ge=1),
+    alert_offset: int = Query(0, ge=0),
+    until: datetime | None = None,
+    db: Session = Depends(get_db),
+):
+    from app.services.archive_service import get_storage_status
+
+    vessel = db.get(VesselORM, vessel_id)
     if not vessel:
         raise HTTPException(status_code=404, detail="Vessel not found")
+    if (position_before is None) != (position_before_id is None):
+        raise HTTPException(status_code=422, detail="position_before and position_before_id must be supplied together")
+    history_until = _utc_time(until) if until else datetime.utcnow()
+    positions_query = db.query(PositionReportORM).filter(
+        PositionReportORM.vessel_id == vessel_id,
+        PositionReportORM.timestamp <= history_until,
+    )
+    count, oldest, newest = positions_query.with_entities(
+        func.count(PositionReportORM.id), func.min(PositionReportORM.timestamp), func.max(PositionReportORM.timestamp),
+    ).one()
+    latest = positions_query.order_by(PositionReportORM.timestamp.desc(), PositionReportORM.id.desc()).first()
+    position_offset = 0
+    if position_before is not None:
+        before = _utc_time(position_before)
+        older = (PositionReportORM.timestamp < before) | (
+            (PositionReportORM.timestamp == before) & (PositionReportORM.id < position_before_id)
+        )
+        position_offset = positions_query.filter(~older).count()
+        positions_query = positions_query.filter(older)
+    page = positions_query.order_by(PositionReportORM.timestamp.desc(), PositionReportORM.id.desc()).limit(51).all()
+    positions = page[:50]
+    next_position_cursor = {
+        "timestamp": positions[-1].timestamp.replace(tzinfo=timezone.utc).isoformat(),
+        "id": positions[-1].id,
+    } if len(page) > 50 else None
 
-    # Latest position
-    positions = (
-        db.query(PositionReportORM)
-        .filter(PositionReportORM.vessel_id == vessel_id)
-        .order_by(PositionReportORM.timestamp.desc())
-        .limit(50)
+    alerts_query = db.query(AlertORM).filter(AlertORM.vessel_id == vessel_id, AlertORM.created_at <= history_until)
+    alert_count = alerts_query.count()
+    alert_offset = min(alert_offset, max(0, (alert_count - 1) // 50 * 50))
+    alerts = alerts_query.order_by(AlertORM.created_at.desc(), AlertORM.id.desc()).offset(alert_offset).limit(50).all()
+    active = alerts_query.filter(AlertORM.status == "active").order_by(AlertORM.created_at.desc()).first()
+    alert_history = [{
+        "id": alert.id,
+        "created_at": alert.created_at.replace(tzinfo=timezone.utc).isoformat(),
+        "status": alert.status,
+        "risk_score": alert.risk_score,
+        "recommended_action": alert.recommended_action,
+        "explanation": alert.explanation,
+        "operator_notes": alert.operator_notes,
+    } for alert in alerts]
+    audit_entries = (
+        db.query(AlertAuditORM)
+        .filter(AlertAuditORM.alert_id.in_([alert.id for alert in alerts]))
+        .order_by(AlertAuditORM.timestamp.desc(), AlertAuditORM.id.desc())
+        .limit(100)
         .all()
     )
-    latest_position = None
-    if positions:
-        p = positions[0]
-        latest_position = {
-            "timestamp": p.timestamp.isoformat() if p.timestamp else None,
-            "latitude": p.latitude,
-            "longitude": p.longitude,
-            "speed_over_ground": p.speed_over_ground,
-            "course_over_ground": p.course_over_ground,
-            "heading": p.heading,
-        }
-
-    # Position trail (chronological order, last 50)
-    position_trail = [
-        {
-            "timestamp": p.timestamp.isoformat() if p.timestamp else None,
-            "latitude": p.latitude,
-            "longitude": p.longitude,
-            "speed_over_ground": p.speed_over_ground,
-            "course_over_ground": p.course_over_ground,
-            "heading": p.heading,
-        }
-        for p in reversed(positions)
-    ]
-
-    # Risk assessment and anomaly signals from active alert
-    alert = (
-        db.query(AlertORM)
-        .filter(AlertORM.vessel_id == vessel_id, AlertORM.status == "active")
-        .first()
-    )
-    risk_assessment = {
-        "score": alert.risk_score if alert else 0,
-        "recommended_action": alert.recommended_action if alert else "ignore",
-        "explanation": alert.explanation if alert else None,
-    }
-    anomaly_signals = []
-    if alert and alert.anomaly_signals_json:
-        anomaly_signals = json.loads(alert.anomaly_signals_json)
-
-    # Operator notes
-    operator_notes = alert.operator_notes if alert else None
-
-    # Alert audit trail
-    alert_audit_trail = []
-    if alert:
-        audit_entries = (
-            db.query(AlertAuditORM)
-            .filter(AlertAuditORM.alert_id == alert.id)
-            .order_by(AlertAuditORM.timestamp.desc())
-            .all()
-        )
-        alert_audit_trail = [
-            {
-                "action": e.action,
-                "details": e.details,
-                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
-            }
-            for e in audit_entries
-        ]
-
-    # Verification requests
-    verification_requests = []
-    vrs = (
+    verifications = (
         db.query(VerificationRequestORM)
         .filter(VerificationRequestORM.vessel_id == vessel_id)
         .order_by(VerificationRequestORM.created_at.desc())
+        .limit(100)
         .all()
     )
-    for vr in vrs:
-        verification_requests.append(_serialize_verification_request(vr).model_dump(mode="json"))
-
+    storage = get_storage_status(db)
     return {
         "vessel": {
-            "id": vessel.id,
-            "name": vessel.name,
-            "mmsi": vessel.mmsi,
-            "imo": vessel.imo,
-            "vessel_type": vessel.vessel_type,
-            "flag_state": vessel.flag_state,
-            "length": vessel.length,
-            "beam": vessel.beam,
-            "draft": vessel.draft,
+            "id": vessel.id, "name": vessel.name, "mmsi": vessel.mmsi, "imo": vessel.imo,
+            "vessel_type": vessel.vessel_type, "flag_state": vessel.flag_state,
+            "length": vessel.length, "beam": vessel.beam, "draft": vessel.draft, "callsign": vessel.callsign,
         },
-        "latest_position": latest_position,
-        "risk_assessment": risk_assessment,
-        "anomaly_signals": anomaly_signals,
-        "position_trail": position_trail,
-        "alert_audit_trail": alert_audit_trail,
-        "operator_notes": operator_notes,
-        "verification_requests": verification_requests,
+        "latest_position": _position_record(latest) if latest else None,
+        "risk_assessment": {
+            "score": active.risk_score if active else 0,
+            "recommended_action": active.recommended_action if active else "ignore",
+            "explanation": active.explanation if active else None,
+        },
+        "anomaly_signals": json.loads(active.anomaly_signals_json) if active and active.anomaly_signals_json else [],
+        "position_trail": [_position_record(p) for p in reversed(positions)],
+        "history": {
+            "position_count": count,
+            "oldest_report_at": oldest.replace(tzinfo=timezone.utc).isoformat() if oldest else None,
+            "newest_report_at": newest.replace(tzinfo=timezone.utc).isoformat() if newest else None,
+            "position_offset": position_offset,
+            "next_position_cursor": next_position_cursor,
+            "page_size": 50,
+            "until": history_until.replace(tzinfo=timezone.utc).isoformat(),
+            "durable": storage["durable"],
+            "retention_days": storage["history_retention_days"],
+            "max_position_rows": storage["max_position_rows"],
+        },
+        "alert_history": alert_history,
+        "alert_history_total": alert_count,
+        "alert_offset": alert_offset,
+        "alert_audit_trail": [{
+            "alert_id": entry.alert_id, "action": entry.action, "details": entry.details,
+            "timestamp": entry.timestamp.replace(tzinfo=timezone.utc).isoformat() if entry.timestamp else None,
+        } for entry in audit_entries],
+        "operator_notes": active.operator_notes if active else None,
+        "verification_requests": [_serialize_verification_request(vr).model_dump(mode="json") for vr in verifications],
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
 
@@ -1175,6 +1208,12 @@ async def stop_ingestion():
 
 
 # ── Data Archive ───────────────────────────────────────
+
+@router.get("/storage/status")
+def storage_status(db: Session = Depends(get_db)):
+    from app.services.archive_service import get_storage_status
+    return get_storage_status(db)
+
 
 @router.get("/archive/stats")
 def archive_stats():

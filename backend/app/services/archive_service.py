@@ -1,18 +1,4 @@
-"""
-Position data archival service.
-
-Archives older position reports to compressed Parquet files while keeping
-recent data in SQLite for fast queries. This gives us:
-- Permanent history (Parquet files, ~10x compression vs SQLite)
-- Fast real-time queries on recent data (SQLite)
-- Replay capability from archived files
-
-Archive structure:
-  data/archive/positions/
-    positions_2026-03-27_08-00.parquet
-    positions_2026-03-27_09-00.parquet
-    ...
-"""
+"""Bounded database history for Postgres and local Parquet archives for SQLite."""
 
 from __future__ import annotations
 import logging
@@ -22,16 +8,28 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sqlalchemy import and_, func, or_
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+from app.database import SessionLocal, is_durable_storage
 from app.models.domain import PositionReportORM, VesselORM
 
 logger = logging.getLogger("harboros.archive")
 
 # Keep this many minutes of data in SQLite; archive everything older
 RETENTION_MINUTES = 30
+
+
+class HistoryRetention(BaseModel):
+    history_retention_days: int = Field(default=7, ge=1)
+    max_position_rows: int = Field(default=250_000, ge=1)
+
+
+HISTORY_RETENTION = HistoryRetention(
+    history_retention_days=os.environ.get("HARBOROS_HISTORY_DAYS", 7),
+    max_position_rows=os.environ.get("HARBOROS_MAX_POSITION_ROWS", 250_000),
+)
 
 # Archive output directory
 ARCHIVE_DIR = Path(os.environ.get(
@@ -60,20 +58,91 @@ POSITION_SCHEMA = pa.schema([
 ])
 
 
+def get_storage_status(db: Session | None = None) -> dict:
+    own_db = db is None
+    if own_db:
+        db = SessionLocal()
+    try:
+        durable = is_durable_storage(db.get_bind())
+        count, oldest, newest = db.query(
+            func.count(PositionReportORM.id),
+            func.min(PositionReportORM.timestamp),
+            func.max(PositionReportORM.timestamp),
+        ).one()
+        return {
+            "backend": db.get_bind().dialect.name,
+            "durable": durable,
+            "history_retention_days": HISTORY_RETENTION.history_retention_days if durable else None,
+            "max_position_rows": HISTORY_RETENTION.max_position_rows if durable else 50_000,
+            "preserves_last_known_position": durable,
+            "position_count": count,
+            "oldest_report_at": f"{oldest.isoformat()}Z" if oldest else None,
+            "newest_report_at": f"{newest.isoformat()}Z" if newest else None,
+        }
+    finally:
+        if own_db:
+            db.close()
+
+
+def prune_position_history(db: Session, policy: HistoryRetention = HISTORY_RETENTION) -> int:
+    """Keep recent tracks and last-known positions, bounded by a total row cap."""
+    ranked = select(
+        PositionReportORM.id,
+        PositionReportORM.timestamp,
+        func.row_number().over(
+            partition_by=PositionReportORM.vessel_id,
+            order_by=(PositionReportORM.timestamp.desc(), PositionReportORM.id.desc()),
+        ).label("rank"),
+    ).subquery()
+    cutoff = datetime.utcnow() - timedelta(days=policy.history_retention_days)
+    expired_ids = select(ranked.c.id).where(ranked.c.rank > 1, ranked.c.timestamp < cutoff)
+    removed = db.query(PositionReportORM).filter(
+        PositionReportORM.id.in_(expired_ids),
+    ).delete(synchronize_session=False)
+
+    remaining = db.query(func.count(PositionReportORM.id)).scalar()
+    if remaining > policy.max_position_rows:
+        overflow = remaining - policy.max_position_rows
+        history_ids = select(ranked.c.id).where(ranked.c.rank > 1).order_by(
+            ranked.c.timestamp, ranked.c.id,
+        ).limit(overflow)
+        deleted = db.query(PositionReportORM).filter(
+            PositionReportORM.id.in_(history_ids),
+        ).delete(synchronize_session=False)
+        removed += deleted
+        overflow -= deleted
+        if overflow > 0:
+            oldest_ids = select(PositionReportORM.id).order_by(
+                PositionReportORM.timestamp, PositionReportORM.id,
+            ).limit(overflow)
+            removed += db.query(PositionReportORM).filter(
+                PositionReportORM.id.in_(oldest_ids),
+            ).delete(synchronize_session=False)
+    db.commit()
+    if removed:
+        logger.info("Pruned %s positions under the database history limit", removed)
+    return removed
+
+
 def archive_old_positions(
     retention_minutes: int = RETENTION_MINUTES,
     db: Session | None = None,
     before_id: int | None = None,
 ) -> dict:
-    """Archive position reports older than retention window to Parquet.
-
-    Returns stats about what was archived.
-    """
+    """Apply durable retention, or archive older local SQLite reports to Parquet."""
     own_db = db is None
     if own_db:
         db = SessionLocal()
 
     try:
+        if is_durable_storage(db.get_bind()):
+            removed = prune_position_history(db)
+            return {
+                "archived": 0,
+                "file": None,
+                "deleted_positions": removed,
+                "message": "History retained in Postgres within the configured limits",
+            }
         cutoff = datetime.utcnow() - timedelta(minutes=retention_minutes)
         old_filter = PositionReportORM.timestamp < cutoff
         if before_id is not None:
