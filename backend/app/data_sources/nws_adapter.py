@@ -101,15 +101,21 @@ def _parse_visibility(value: str | None) -> float:
         return 10.0
 
 
-def get_weather(lat: float, lon: float) -> WeatherConditions | None:
+def get_weather(lat: float, lon: float, *, cached_only: bool = False) -> WeatherConditions | None:
     """Fetch current weather conditions for a position via NWS API.
 
     Returns None for positions outside NWS coverage (non-US) or on error.
     Results are cached by 0.5° grid cell for 15 minutes.
     """
+    # NWS is a US service; worldwide AIS views must not make weather requests
+    # for every vessel in Europe, Asia or the southern hemisphere.
+    if not (15 <= lat <= 72 and -180 <= lon <= -60):
+        return None
     cached = _cache_get(lat, lon)
     if cached is not ...:
         return cached
+    if cached_only:
+        return None
 
     try:
         import requests

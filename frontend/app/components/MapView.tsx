@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useDataSource } from "@/app/lib/data-source";
-import type { Vessel, Geofence, SatelliteTileSource } from "@/app/lib/api";
+import type { Vessel, Geofence, SatelliteTileSource, MapBounds } from "@/app/lib/api";
 import { riskHex, RISK_THRESHOLDS } from "@/app/lib/risk";
 
 export interface SatelliteOverlay {
@@ -22,6 +22,7 @@ interface MapViewProps {
   satelliteOverlay?: SatelliteOverlay | null;
   onMapCenterChange?: (center: [number, number]) => void;
   onMapClick?: (coords: [number, number]) => void;
+  onViewportChange?: (bounds: MapBounds, manual: boolean) => void;
 }
 
 const vesselColor = riskHex;
@@ -235,9 +236,10 @@ export default function MapView({
   satelliteOverlay,
   onMapCenterChange,
   onMapClick,
+  onViewportChange,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const { api } = useDataSource();
+  const { api, isDemo } = useDataSource();
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Record<string, {
     marker: maplibregl.Marker;
@@ -255,9 +257,10 @@ export default function MapView({
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const [satelliteTiles, setSatelliteTiles] = useState<SatelliteTileSource | null>(null);
   const hideNormal = false;
-  const [zoomLevel, setZoomLevel] = useState(12.5);
+  const [zoomLevel, setZoomLevel] = useState(isDemo ? 12.5 : 2);
   const showMarkers = zoomLevel >= HEATMAP_ZOOM_THRESHOLD;
   const centerChangeRef = useRef(onMapCenterChange);
+  const viewportChangeRef = useRef(onViewportChange);
   const mapClickRef = useRef(onMapClick);
   const onSelectVesselRef = useRef(onSelectVessel);
   const satelliteStyleKey = satelliteTiles
@@ -281,9 +284,10 @@ export default function MapView({
 
   useEffect(() => {
     centerChangeRef.current = onMapCenterChange;
+    viewportChangeRef.current = onViewportChange;
     mapClickRef.current = onMapClick;
     onSelectVesselRef.current = onSelectVessel;
-  }, [onMapCenterChange, onMapClick, onSelectVessel]);
+  }, [onMapCenterChange, onMapClick, onSelectVessel, onViewportChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -494,11 +498,11 @@ export default function MapView({
       map = new maplibregl.Map({
         container: mapContainer.current,
         style: buildMapStyle(mapMode, satelliteTiles),
-        center: [-118.265, 33.725],
-        zoom: 12.5,
+        center: isDemo ? [-118.265, 33.725] : [10, 20],
+        zoom: isDemo ? 12.5 : 2,
         pitch: 0,
         attributionControl: false,
-        ...(mapContainer.current.clientWidth < 640 ? {
+        ...(isDemo && mapContainer.current.clientWidth < 640 ? {
           bounds: [[-118.325, 33.66], [-118.205, 33.76]] as [[number, number], [number, number]],
           fitBoundsOptions: { padding: { top: 140, bottom: 180, left: 24, right: 60 } },
         } : {}),
@@ -511,6 +515,21 @@ export default function MapView({
     }
 
     mapRef.current = map;
+    let manualMove = false;
+    const reportViewport = () => {
+      const bounds = map.getBounds();
+      const wrapLongitude = (value: number) => ((value + 180) % 360 + 360) % 360 - 180;
+      const wholeWorld = bounds.getEast() - bounds.getWest() >= 360;
+      viewportChangeRef.current?.({
+        west: wholeWorld ? -180 : wrapLongitude(bounds.getWest()),
+        east: wholeWorld ? 180 : wrapLongitude(bounds.getEast()),
+        south: Math.max(-85, bounds.getSouth()),
+        north: Math.min(85, bounds.getNorth()),
+      }, manualMove);
+      manualMove = false;
+    };
+    map.on("movestart", (event) => { manualMove = !!event.originalEvent; });
+    map.on("resize", reportViewport);
     map.on("style.load", () => {
       styleLoadedRef.current = true;
       setStyleVersion((version) => version + 1);
@@ -526,10 +545,12 @@ export default function MapView({
       map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
       const center = map.getCenter();
       centerChangeRef.current?.([center.lng, center.lat]);
+      reportViewport();
 
       map.on("moveend", () => {
         const nextCenter = map.getCenter();
         centerChangeRef.current?.([nextCenter.lng, nextCenter.lat]);
+        reportViewport();
       });
 
       map.on("zoom", () => {
