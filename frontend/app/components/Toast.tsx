@@ -20,9 +20,9 @@ const ICONS: Record<ToastItem["type"], string> = {
 };
 
 const COLORS: Record<ToastItem["type"], { border: string; icon: string; bg: string }> = {
-  success: { border: "border-emerald-500/25", icon: "text-emerald-400", bg: "bg-emerald-500/10" },
+  success: { border: "border-[var(--workspace-border)]", icon: "text-slate-300", bg: "bg-emerald-500/10" },
   error: { border: "border-red-500/25", icon: "text-red-400", bg: "bg-red-500/10" },
-  info: { border: "border-blue-500/25", icon: "text-blue-400", bg: "bg-blue-500/10" },
+  info: { border: "border-[var(--workspace-border)]", icon: "text-slate-400", bg: "bg-blue-500/10" },
 };
 
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string) => void }) {
@@ -35,7 +35,7 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: str
 
   return (
     <div
-      className={`pointer-events-auto flex w-72 max-w-[calc(100vw-24px)] items-center gap-2.5 rounded-lg border ${c.border} bg-[#111923] pl-3 pr-1 shadow-lg`}
+      className={`pointer-events-auto flex w-72 max-w-[calc(100vw-24px)] items-center gap-2.5 rounded border ${c.border} bg-[var(--workspace-surface)] pl-3 pr-1`}
       style={{ animation: "fade-in-up 0.25s ease-out" }}
     >
       <div className={`shrink-0 mt-0.5 ${c.icon}`}>
