@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "H4BOR | Documentation",
-  description: "API reference, quickstart guide, and integration notes for the HarborOS maritime intelligence platform.",
+  title: "API documentation",
+  description: "API reference and local setup instructions for vessel positions, activity alerts, and reports.",
 };
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {

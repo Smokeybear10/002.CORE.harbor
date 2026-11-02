@@ -469,8 +469,9 @@ export default function VesselDetailPanel({
       {/* Risk Score */}
       <div className="px-4 py-3 border-b border-[var(--workspace-border)]">
         <div className="flex items-center gap-3 mb-2">
-          <span className={`text-3xl font-bold font-mono leading-none ${riskColor(riskScore)}`}>
+          <span className={`text-3xl font-semibold tabular-nums leading-none ${riskColor(riskScore)}`}>
             {hasRiskScore ? Math.round(riskScore) : "—"}
+            {hasRiskScore && <span className="ml-1 text-sm font-normal text-slate-400">/100</span>}
           </span>
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1">
@@ -1015,7 +1016,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
           </svg>
           Back
         </button>
-        <span className="text-[10px] font-mono font-semibold text-slate-500 uppercase tracking-[0.18em] flex-1 text-center">Incident Report</span>
+        <span className="text-sm font-medium text-slate-300 flex-1 text-center">Vessel report</span>
         <button
           onClick={() => {
             const v = report.vessel as Record<string, unknown> | undefined;
@@ -1092,7 +1093,7 @@ function ReportView({ report, onBack }: { report: Record<string, unknown>; onBac
 
         {/* Footer */}
         <div className="text-center text-[9px] font-mono tracking-[0.18em] uppercase text-slate-600 pt-3 pb-2 border-t border-white/[0.06]">
-          HarborOS · {isDemo ? "Demo report" : "Confidential"}
+          {isDemo ? "Sample vessel report" : "AIS vessel report"}
         </div>
       </div>
     </>

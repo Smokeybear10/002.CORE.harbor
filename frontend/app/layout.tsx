@@ -19,31 +19,31 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003/api";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "H4BOR | Maritime Map",
+  title: "Vessel tracking",
   description:
-    "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
+    "View AIS vessel positions, inspect saved history, and review activity alerts.",
   alternates: { canonical: "/" },
   twitter: {
     card: "summary_large_image",
-    title: "H4BOR | Maritime Map",
+    title: "Vessel tracking",
     description:
-      "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
+      "View AIS vessel positions, inspect saved history, and review activity alerts.",
   },
   openGraph: {
     type: "website",
-    title: "H4BOR | Maritime Map",
+    title: "Vessel tracking",
     description:
-      "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
+      "View AIS vessel positions, inspect saved history, and review activity alerts.",
   },
 };
 
 const ORGANIZATION_SCHEMA = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "HarborOS",
+  name: "Vessel tracking",
   description:
-    "Track vessel movements, review alerts, and inspect maritime activity with AIS and satellite imagery.",
-  applicationCategory: "SecurityApplication",
+    "View AIS vessel positions, inspect saved history, and review activity alerts.",
+  applicationCategory: "UtilitiesApplication",
   operatingSystem: "Web",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   url: SITE_URL,
@@ -79,7 +79,6 @@ export default function RootLayout({
         >
           Skip to main content
         </a>
-        <div aria-hidden className="ambient-glow" />
         {children}
       </body>
     </html>

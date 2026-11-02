@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "H4BOR | Sectors",
-  description: "Nine contested waterways HarborOS monitors — LA Harbor, Singapore Strait, Bab-el-Mandeb, Hormuz, Taiwan Strait, and more.",
+  title: "Maritime areas",
+  description: "Explore ports and waterways, including Los Angeles, the English Channel, Malacca, and the Taiwan Strait.",
 };
 
 export default function SectorsLayout({ children }: { children: React.ReactNode }) {

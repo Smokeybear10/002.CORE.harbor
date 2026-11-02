@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "H4BOR | Operations Console",
+  title: "Vessel tracking",
   robots: { index: false, follow: false, noarchive: true },
 };
 

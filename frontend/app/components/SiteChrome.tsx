@@ -1,6 +1,5 @@
 import Link from "next/link";
 import LaunchButton from "@/app/components/LaunchButton";
-import Logomark from "@/app/components/Logomark";
 
 const NAV: { label: string; href: string }[] = [
   { label: "Map", href: "/" },
@@ -12,8 +11,7 @@ export function SiteNav({ active, mapHref = "/" }: { active?: string; mapHref?: 
   return (
     <nav className="max-w-[1400px] mx-auto flex items-center px-4 sm:px-8 py-3 gap-3">
       <Link href={mapHref} className="flex min-h-11 items-center gap-2.5 text-slate-200">
-        <Logomark size={22} />
-        <span className="text-[14px] font-semibold tracking-tight text-slate-100">HarborOS</span>
+        <span className="text-base font-semibold text-slate-100">Vessel tracking</span>
       </Link>
       <div className="ml-auto flex items-center gap-3 sm:gap-6">
         {NAV.map((item) => (
@@ -28,7 +26,7 @@ export function SiteNav({ active, mapHref = "/" }: { active?: string; mapHref?: 
           </Link>
         ))}
         <LaunchButton href={mapHref} className="btn-primary hidden sm:inline-flex min-h-11 items-center text-[12.5px] px-3.5 py-1.5 rounded-md">
-          Launch
+          Open map
         </LaunchButton>
       </div>
     </nav>
@@ -38,7 +36,7 @@ export function SiteNav({ active, mapHref = "/" }: { active?: string; mapHref?: 
 export function SiteFooter() {
   return (
     <footer className="max-w-[1400px] mx-auto px-8 py-8 border-t border-white/[0.06] flex flex-wrap justify-between gap-4 text-[12px] text-slate-500">
-      <div>HarborOS · Maritime monitoring</div>
+      <div>AIS positions and vessel history</div>
       <div className="font-mono">Built by Thomas Ou</div>
     </footer>
   );
@@ -50,7 +48,7 @@ export function PageHero({
   gradient,
   body,
   ctaHref = "/dashboard",
-  ctaLabel = "Launch Operations",
+  ctaLabel = "Open map",
   secondaryHref,
   secondaryLabel,
 }: {
@@ -65,14 +63,13 @@ export function PageHero({
 }) {
   return (
     <section className="max-w-[1100px] mx-auto px-8 pt-16 pb-12">
-      <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-white/[0.08] bg-white/[0.02] text-[11.5px] text-slate-400 font-mono mb-7">
-        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+      <p className="mb-5 text-sm text-slate-400">
         {eyebrow}
-      </div>
+      </p>
       <h1 className="text-[42px] lg:text-[50px] leading-[1.04] tracking-[-0.03em] font-semibold mb-5">
         {title}
         <br />
-        <span className="gradient-text">{gradient}</span>
+        <span className="text-slate-300">{gradient}</span>
       </h1>
       <p className="text-[15.5px] leading-[1.55] text-slate-400 max-w-[620px] mb-8">
         {body}

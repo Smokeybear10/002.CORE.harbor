@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "H4BOR | Vessel Report",
+  title: "Vessel report",
   robots: { index: false, follow: false, noarchive: true, nosnippet: true },
 };
 

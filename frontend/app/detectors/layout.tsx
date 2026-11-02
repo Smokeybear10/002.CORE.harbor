@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "H4BOR | Detection Engines",
+  title: "Activity detection",
   description: "Eleven behavioral detectors that surface suspicious vessel activity across AIS gaps, loitering, geofence breaches, and identity anomalies.",
 };
 

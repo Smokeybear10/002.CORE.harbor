@@ -33,7 +33,7 @@ export default function SectorsPage() {
             <FactStat n="~30%" l="Global oil through Hormuz" />
             <FactStat n="~40%" l="World trade via Malacca" />
             <FactStat n="500+" l="Vessels/day Dover Strait" />
-            <FactStat n="9" l="Live sectors now" />
+            <FactStat n="9" l="Area presets" />
           </div>
         </div>
         </Reveal>
@@ -71,7 +71,7 @@ function SectorCard({ name, region, description, tone, activity }: {
       </div>
       <p className="text-[12px] text-slate-400 leading-[1.55] mb-4">{description}</p>
       <div className="font-mono text-[10.5px] text-slate-500 pt-3 border-t border-white/[0.05]">
-        {activity}
+        Sample: {activity}
       </div>
     </div>
   );
@@ -111,17 +111,11 @@ function SectorsHero() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-10 items-center">
         {/* Left: headline */}
         <div>
-          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-white/[0.08] bg-white/[0.02] text-[11.5px] text-slate-400 font-mono mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" style={{ animation: "subtle-pulse 2.4s infinite" }} />
-            9 sectors · live
-          </div>
           <h1 className="text-[44px] leading-[1.04] tracking-[-0.03em] font-semibold mb-5">
-            Nine corridors.
-            <br />
-            <span className="gradient-text">One watch.</span>
+            Ports and waterways
           </h1>
           <p className="text-[15px] leading-[1.6] text-slate-400 max-w-[520px] mb-7">
-            HarborOS tracks the most strategically important waterways on the planet. Every sector is pre-seeded with geofences, traffic lanes, and sector-specific risk thresholds.
+            Explore these ports and waterways from the map. Live AIS follows the selected area, and coverage depends on available receivers.
           </p>
           <div className="flex flex-wrap gap-2.5 items-center mb-8">
             <Link href="/dashboard" className="btn-primary text-[13px] px-4 py-2 rounded-md inline-flex items-center gap-2">
@@ -146,10 +140,10 @@ function SectorsHero() {
           }} />
           <div className="relative">
             <div className="flex items-center justify-between mb-3">
-              <span className="font-mono text-[10px] text-slate-500 tracking-[0.14em] uppercase">Global watch · live</span>
+              <span className="font-mono text-[10px] text-slate-500 tracking-[0.14em] uppercase">Illustrative overview</span>
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ animation: "subtle-pulse 2.4s infinite" }} />
-                <span className="font-mono text-[9.5px] text-emerald-300 tracking-[0.14em] uppercase">Streaming</span>
+                <span className="font-mono text-[9.5px] text-emerald-300 tracking-[0.14em] uppercase">Sample data</span>
               </span>
             </div>
             <div className="relative rounded-lg overflow-hidden bg-[#0a0e1a] aspect-[2/1]">
@@ -201,24 +195,7 @@ function SectorsHero() {
                 );
               })}
             </div>
-            <div className="mt-3 grid grid-cols-4 gap-3 text-[10px] font-mono">
-              <div>
-                <div className="text-slate-500 tracking-[0.14em] uppercase">Tracked · 24h</div>
-                <div className="text-slate-100 text-[14px] font-semibold tabular-nums mt-0.5">14,287</div>
-              </div>
-              <div>
-                <div className="text-slate-500 tracking-[0.14em] uppercase">Alerts</div>
-                <div className="text-amber-300 text-[14px] font-semibold tabular-nums mt-0.5">47</div>
-              </div>
-              <div>
-                <div className="text-slate-500 tracking-[0.14em] uppercase">Sectors</div>
-                <div className="text-slate-100 text-[14px] font-semibold tabular-nums mt-0.5">9</div>
-              </div>
-              <div>
-                <div className="text-slate-500 tracking-[0.14em] uppercase">Uptime</div>
-                <div className="text-emerald-300 text-[14px] font-semibold tabular-nums mt-0.5">99.98%</div>
-              </div>
-            </div>
+            <p className="mt-3 text-xs leading-relaxed text-slate-400">Area locations only. Open the map for received vessel positions and current alerts.</p>
           </div>
         </div>
       </div>
