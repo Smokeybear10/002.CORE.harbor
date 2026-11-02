@@ -29,10 +29,12 @@ function shallowVesselListEqual(a: Vessel[], b: Vessel[]): boolean {
   for (let i = 0; i < a.length; i++) {
     const x = a[i], y = b[i];
     if (x.id !== y.id) return false;
+    if (x.name !== y.name || x.vessel_type !== y.vessel_type) return false;
     if (x.risk_score !== y.risk_score) return false;
     if (x.recommended_action !== y.recommended_action) return false;
     if (x.is_inactive !== y.is_inactive || x.is_resolved !== y.is_resolved) return false;
     const xp = x.latest_position, yp = y.latest_position;
+    if (xp?.timestamp !== yp?.timestamp || xp?.speed_over_ground !== yp?.speed_over_ground) return false;
     if (xp?.latitude !== yp?.latitude || xp?.longitude !== yp?.longitude) return false;
     if (xp?.course_over_ground !== yp?.course_over_ground) return false;
   }
@@ -94,6 +96,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   const [viewport, setViewport] = useState<MapBounds | null>(null);
   const [coverage, setCoverage] = useState<MapCoverage | null>(null);
   const [vesselsTotal, setVesselsTotal] = useState(0);
+  const [areaLastReportAt, setAreaLastReportAt] = useState<string | null>(null);
   const viewerIdRef = useRef<string | null>(null);
   const viewportRevisionRef = useRef(0);
   const [mapClickFocus, setMapClickFocus] = useState<[number, number] | null>(null);
@@ -250,6 +253,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         setVessels((prev) => (shallowVesselListEqual(prev, v.items) ? prev : v.items));
         liveVesselsRef.current = v.items;
         setVesselsTotal(v.total);
+        setAreaLastReportAt("last_report_at" in v ? v.last_report_at ?? null : null);
         setAlerts((prev) => (shallowAlertListEqual(prev, a.items) ? prev : a.items));
         setAlertsTotal(a.total);
         setIngestionStatus(status);
@@ -286,6 +290,7 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
     setCoverage(null);
     setVessels([]);
     setVesselsTotal(0);
+    setAreaLastReportAt(null);
     setAlerts([]);
     if (manual) setActiveRegion(null);
   }, [isDemo]);
@@ -475,6 +480,11 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
   }, [selectedVessel, showAnalytics, commandOpen, handleCloseDetail, handleToggleAnalytics, showToast]);
 
   const isLive = ingestionStatus?.running && ingestionStatus?.connected;
+  const zoomRequired = !isDemo && viewport !== null && !canWatchMap(viewport);
+  const lastReportAt = areaLastReportAt ?? vessels.reduce<string | null>((latest, vessel) => {
+    const timestamp = vessel.latest_position?.timestamp;
+    return timestamp && (!latest || timestamp > latest) ? timestamp : latest;
+  }, null);
 
   return (
     <main id="main" className="harbor-workspace h-dvh relative overflow-hidden" data-demo={isDemo} data-tour="map">
@@ -502,6 +512,9 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         statusKnown={ingestionStatus !== null}
         connectionOk={connectionOk}
         vesselCount={vessels.length}
+        coverage={coverage}
+        zoomRequired={zoomRequired}
+        lastReportAt={lastReportAt}
         onModeChange={onModeChange}
         onToggleAnalytics={handleToggleAnalytics}
         analyticsOpen={showAnalytics}
@@ -519,12 +532,12 @@ function Dashboard({ onModeChange }: { onModeChange: (mode: DataMode) => void })
         loading={loading}
         onDemo={() => onModeChange("demo")}
         coverage={coverage}
-        zoomRequired={!isDemo && viewport !== null && !canWatchMap(viewport)}
+        zoomRequired={zoomRequired}
         vesselsTotal={vesselsTotal}
       />
 
       {/* Alert peeks, bottom-left */}
-      {!loading && connectionOk && <AlertPeeks
+      {!loading && connectionOk && (isDemo || alerts.length > 0 || (coverage?.subscribed && vessels.length > 0)) && <AlertPeeks
         alerts={alerts}
         onSelectAlert={handleSelectAlert}
         selectedAlertId={selectedAlertId}

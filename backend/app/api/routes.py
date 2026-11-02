@@ -1,7 +1,7 @@
 """FastAPI route handlers."""
 
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import uuid
 
@@ -251,6 +251,9 @@ def list_vessels(
         .group_by(PositionReportORM.vessel_id)
         .subquery()
     )
+    last_report_at = base_query.join(
+        latest_pos_sq, VesselORM.id == latest_pos_sq.c.vessel_id,
+    ).with_entities(func.max(latest_pos_sq.c.max_ts)).scalar()
 
     rows = (
         db.query(VesselORM, PositionReportORM, AlertORM)
@@ -312,7 +315,10 @@ def list_vessels(
             is_resolved=False, # Optimized out of bulk list
             status_reason=status_reason,
         ))
-    return {"items": items, "total": total, "limit": limit, "offset": offset}
+    return {
+        "items": items, "total": total, "limit": limit, "offset": offset,
+        "last_report_at": last_report_at.replace(tzinfo=timezone.utc).isoformat() if last_report_at else None,
+    }
 
 
 @router.get("/vessels/{vessel_id}", response_model=VesselDetailSchema)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { Region } from "@/app/lib/api";
+import type { Region, MapCoverage } from "@/app/lib/api";
 import type { DataMode } from "@/app/lib/api";
 import { useDataSource } from "@/app/lib/data-source";
 import { DEMO_DURATION_MS, DEMO_PLAYBACK_RATE } from "@/app/lib/demo-api";
@@ -12,6 +12,9 @@ type FloatingChromeProps = {
   activeRegion: string | null;
   onSelectRegion: (key: string | null) => void;
   vesselCount: number;
+  coverage: MapCoverage | null;
+  zoomRequired: boolean;
+  lastReportAt: string | null;
   onModeChange: (mode: DataMode) => void;
   isLive: boolean;
   loading: boolean;
@@ -43,6 +46,9 @@ export default function FloatingChrome({
   activeRegion,
   onSelectRegion,
   vesselCount,
+  coverage,
+  zoomRequired,
+  lastReportAt,
   onModeChange,
   isLive,
   loading,
@@ -56,7 +62,14 @@ export default function FloatingChrome({
   const [regionOpen, setRegionOpen] = useState(false);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
   const [countsLoading, setCountsLoading] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const regionMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isDemo) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isDemo]);
 
   useEffect(() => {
     if (!regionOpen) return;
@@ -123,8 +136,21 @@ export default function FloatingChrome({
     : isDemo ? "All monitored regions" : "Explore worldwide";
 
   const controlClass = "min-h-11 min-w-11 disabled:cursor-not-allowed disabled:opacity-40 items-center justify-center gap-2 rounded-md px-3 text-[13px] text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white";
-  const statusLabel = loading ? (isDemo ? "Loading demo" : "Connecting to AIS") : isDemo ? "Demo · simulated traffic" : !connectionOk ? "Live data offline" : !statusKnown ? "Feed status unavailable" : isLive ? "Live AIS connected" : "AIS feed disconnected";
-  const statusColor = isDemo ? "bg-slate-400" : !connectionOk ? "bg-amber-400" : isLive ? "bg-emerald-400" : "bg-slate-400";
+  const reportTime = lastReportAt ? Date.parse(/[Zz]$|[+-]\d{2}:\d{2}$/.test(lastReportAt) ? lastReportAt : `${lastReportAt}Z`) : NaN;
+  const reportAge = Number.isFinite(reportTime) ? Math.max(0, Math.floor((now - reportTime) / 1000)) : null;
+  const receiving = !loading && !zoomRequired && connectionOk && isLive && coverage?.subscribed && reportAge !== null && reportAge < 120;
+  const statusLabel = loading ? (isDemo ? "Loading demo" : "Connecting…")
+    : isDemo ? "Demo · simulated"
+    : !connectionOk ? "AIS offline"
+    : zoomRequired ? "Choose an area"
+    : !statusKnown ? "Status unavailable"
+    : !isLive ? "AIS disconnected"
+    : coverage?.state === "busy" ? "Waiting for capacity"
+    : !coverage?.subscribed ? "Connecting to area"
+    : receiving ? "Live AIS"
+    : reportAge === null ? "Waiting for reports" : "No recent AIS";
+  const statusColor = receiving ? "bg-emerald-400" : !isDemo && (!connectionOk || (coverage?.subscribed && !receiving)) ? "bg-amber-400" : "bg-slate-400";
+  const reportAgeLabel = reportAge === null ? null : reportAge < 60 ? `${reportAge}s ago` : reportAge < 3600 ? `${Math.floor(reportAge / 60)}m ago` : `${Math.floor(reportAge / 3600)}h ago`;
 
   return (
     <header aria-label="Map controls" className="absolute inset-x-0 top-0 z-30 border-b border-[var(--workspace-border)] bg-[var(--workspace-surface)] px-3 py-2 sm:px-4">
@@ -146,7 +172,7 @@ export default function FloatingChrome({
           data-tour="regions"
           className={`inline-flex ${controlClass} ${regionOpen ? "bg-white/[0.06] text-white" : ""}`}
         >
-          <span className="max-w-[150px] truncate font-medium sm:max-w-[180px]">{activeLabel}</span>
+          <span className="max-w-[110px] truncate font-medium sm:max-w-[180px]">{activeLabel}</span>
           <svg aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={`shrink-0 text-slate-400 transition-transform ${regionOpen ? "rotate-180" : ""}`}>
             <path d="M6 9l6 6 6-6" />
           </svg>
@@ -191,11 +217,16 @@ export default function FloatingChrome({
         <kbd className="ml-auto hidden rounded border border-white/[0.1] px-1.5 py-0.5 font-mono text-[10px] text-slate-400 xl:inline">⌘K</kbd>
       </button>
       <div className="order-4 hidden flex-1 sm:block" />
-      <div role="status" className="order-9 ml-auto flex min-h-11 items-center gap-2 px-2 text-xs text-slate-400 sm:order-5 sm:ml-0">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} />
-        <span className="hidden lg:inline">{statusLabel}</span>
-        <span className="lg:hidden">{loading ? "Connecting…" : isDemo ? "Demo" : !connectionOk ? "AIS offline" : !statusKnown ? "Status unknown" : isLive ? "Live AIS" : "AIS disconnected"}</span>
-        {!loading && connectionOk && <span className="hidden border-l border-[var(--workspace-border)] pl-2 xl:inline">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}</span>}
+      <div aria-label="AIS feed status" className="order-9 ml-auto flex min-h-11 shrink-0 flex-col justify-center gap-1 px-2 text-xs text-slate-400 sm:order-5 sm:ml-0">
+        <div role="status" className="flex items-center gap-2">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusColor}`} />
+          <span>{statusLabel}</span>
+          {!loading && (isDemo || (!zoomRequired && coverage?.subscribed)) && <span className="hidden border-l border-[var(--workspace-border)] pl-2 text-slate-200 sm:inline">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}</span>}
+        </div>
+        {!loading && (isDemo || reportAgeLabel) && <div className="pl-3.5 text-[11px]">
+          <span className="sm:hidden">{vesselCount} {vesselCount === 1 ? "vessel" : "vessels"}{!isDemo && reportAgeLabel && " · "}</span>
+          {!isDemo && reportAgeLabel && <><span className="hidden sm:inline">Last report </span><time aria-label={`Last AIS report ${reportAgeLabel}`} dateTime={new Date(reportTime).toISOString()} title={new Date(reportTime).toUTCString()}>{reportAgeLabel}</time></>}
+        </div>}
       </div>
       <button type="button" data-tour="analytics-btn" aria-label="Analytics" disabled={(loading || !connectionOk) && !analyticsOpen} aria-pressed={analyticsOpen} onClick={onToggleAnalytics} className={`inline-flex ${controlClass} order-3 sm:order-6 ${analyticsOpen ? "bg-white/[0.08] text-white" : ""}`}>
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
