@@ -12,6 +12,7 @@ from app.models.domain import PositionReportORM
 MAX_VIEWPORT_AREA = 256
 MAX_VIEWERS = 8
 LEASE_SECONDS = 45
+BACKGROUND_LEASE_SECONDS = 15 * 60
 
 
 class MapBounds(BaseModel):
@@ -51,6 +52,13 @@ class CoverageRequest(BaseModel):
     client_id: UUID
     revision: int = Field(ge=0, le=2**53 - 1)
     bounds: MapBounds | None
+    background: bool = False
+
+    @property
+    def lease_seconds(self) -> int:
+        if self.background or self.bounds is None or not self.bounds.is_browsable:
+            return BACKGROUND_LEASE_SECONDS
+        return LEASE_SECONDS
 
 
 class ViewportSubscriptions:
@@ -69,14 +77,24 @@ class ViewportSubscriptions:
         bounds = request.bounds
         if bounds and not bounds.is_browsable:
             bounds = None
+        if previous and request.revision == previous[0] and bounds != previous[1]:
+            return "superseded"
         active = sum(lease[1] is not None for key, lease in self.leases.items() if key != request.client_id)
         if bounds and active >= MAX_VIEWERS:
             return "busy"
-        # Retain a short-lived revision tombstone after zooming out, so a delayed
-        # request cannot restore the previous area. Bound these records as well.
+        # Releases retain their revision so a delayed background renewal cannot
+        # restore an area after the tab closes. Evict old releases before
+        # refusing a new viewer because of the bookkeeping limit.
         if not previous and len(self.leases) >= MAX_VIEWERS * 8:
-            return "busy"
-        self.leases[request.client_id] = (request.revision, bounds, monotonic() + LEASE_SECONDS)
+            oldest_inactive = min(
+                (key for key, lease in self.leases.items() if lease[1] is None),
+                key=lambda key: self.leases[key][2],
+            )
+            del self.leases[oldest_inactive]
+        expires = monotonic() + request.lease_seconds
+        if previous and request.revision == previous[0]:
+            expires = max(expires, previous[2])
+        self.leases[request.client_id] = (request.revision, bounds, expires)
         return "watching" if bounds else "zoom_in"
 
     def boxes(self) -> list[list[list[float]]]:
