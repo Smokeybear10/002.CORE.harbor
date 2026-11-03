@@ -23,7 +23,7 @@ services:
       - key: HARBOROS_AIS_REGIONS
         value: la_harbor
       - key: HARBOROS_CORS_ORIGINS
-        value: https://h4bor.vercel.app
+        value: https://h4bor.vercel.app,https://harbor.thomasou.com
       - key: HARBOROS_DB
         value: /tmp/h4bor/harboros.db
       - key: HARBOROS_ARCHIVE_DIR
