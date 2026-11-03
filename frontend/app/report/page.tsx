@@ -3,8 +3,8 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getApi, getDataMode, type DataMode, type PositionHistoryCursor } from "@/app/lib/api";
-import { riskLevel } from "@/app/lib/risk";
-import { SiteNav, SiteFooter } from "@/app/components/SiteChrome";
+import Link from "next/link";
+import { formatAssessmentTime, riskLabel } from "@/app/lib/risk";
 
 type Report = Record<string, unknown>;
 type History = {
@@ -21,46 +21,43 @@ type History = {
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
-  ais_gap: "AIS Dark Period",
-  kinematic_implausibility: "Position Spoofing",
-  geofence_breach: "Restricted Zone Breach",
-  type_mismatch: "Identity Mismatch",
-  route_deviation: "Route Deviation",
+  ais_gap: "AIS reporting gap",
+  kinematic_implausibility: "Position inconsistency",
+  geofence_breach: "Restricted area entry",
+  type_mismatch: "Vessel identity mismatch",
+  route_deviation: "Route deviation",
   loitering: "Loitering",
-  zone_lingering: "Zone Lingering",
-  speed_anomaly: "Speed Anomaly",
-  heading_anomaly: "Course Anomaly",
-  statistical_outlier: "Regional Outlier",
-  collision_risk: "COLREGS Non-Compliance",
-  dark_ship_optical: "Dark Ship (Optical)",
+  zone_lingering: "Extended time in zone",
+  speed_anomaly: "Unusual speed",
+  heading_anomaly: "Unusual course",
+  statistical_outlier: "Unusual regional activity",
+  collision_risk: "Collision risk",
+  dark_ship_optical: "Optical detection without AIS",
 };
 
-function actionPill(action: string) {
-  if (action === "escalate") return "bg-red-500/[0.08] border-red-400/25 text-red-300";
-  if (action === "verify") return "bg-amber-500/[0.08] border-amber-400/25 text-amber-300";
-  if (action === "monitor") return "bg-yellow-500/[0.08] border-yellow-400/25 text-yellow-300";
-  return "bg-emerald-500/[0.08] border-emerald-400/25 text-emerald-300";
+function reportTime(value: unknown, seconds = false): string {
+  if (typeof value !== "string") return "—";
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", ...(seconds ? { second: "2-digit" } as const : {}),
+    timeZoneName: "short",
+  });
 }
 
-function scoreTone(level: string) {
-  if (level === "escalate") return "text-red-300";
-  if (level === "verify") return "text-amber-300";
-  if (level === "monitor") return "text-yellow-300";
-  return "text-emerald-300";
-}
-
-function sevColor(sev: number) {
-  if (sev >= 0.55) return "bg-red-400";
-  if (sev >= 0.35) return "bg-amber-400";
-  if (sev >= 0.2) return "bg-yellow-400";
-  return "bg-emerald-400";
-}
-
-function sevText(sev: number) {
-  if (sev >= 0.55) return "text-red-300";
-  if (sev >= 0.35) return "text-amber-300";
-  if (sev >= 0.2) return "text-yellow-300";
-  return "text-emerald-300";
+function ReportHeader({ mapHref, printable = false }: { mapHref: string; printable?: boolean }) {
+  return (
+    <nav aria-label="Report controls" className="border-b border-[#d2d7d6] print:hidden">
+      <div className="mx-auto flex max-w-[1120px] items-center justify-between px-5 py-2 sm:px-8">
+        <Link href={mapHref} className="inline-flex min-h-11 items-center gap-2 text-sm text-[#203039] hover:underline underline-offset-4">
+          <span aria-hidden="true">←</span> Back to map
+        </Link>
+        {printable && <button type="button" onClick={() => window.print()} className="min-h-11 px-3 text-sm text-[#203039] hover:bg-[#eef0ec]">Print / PDF</button>}
+      </div>
+    </nav>
+  );
 }
 
 export default function ReportPage() {
@@ -73,22 +70,20 @@ export default function ReportPage() {
 
 function LoadingState({ mapHref = "/" }: { mapHref?: string }) {
   return (
-    <main id="main" className="min-h-screen">
-      <SiteNav mapHref={mapHref} />
-      <div className="max-w-[1100px] mx-auto px-8 py-20 text-slate-500 text-[14px]">Loading report…</div>
+    <main id="main" className="vessel-report min-h-screen bg-[#fafaf7] text-[#203039]">
+      <ReportHeader mapHref={mapHref} />
+      <p className="mx-auto max-w-[1120px] px-5 py-12 text-sm text-[#596970] sm:px-8">Loading report…</p>
     </main>
   );
 }
 
 function ErrorState({ message, mapHref }: { message: string; mapHref: string }) {
   return (
-    <main id="main" className="min-h-screen">
-      <SiteNav mapHref={mapHref} />
-      <div className="max-w-[1100px] mx-auto px-8 py-20">
-        <div className="glass rounded-2xl p-8 border border-red-400/20 bg-red-500/[0.04]">
-          <div className="text-[10.5px] font-mono tracking-[0.22em] text-red-300 uppercase mb-2">Error</div>
-          <div className="text-[15px] text-slate-200">{message}</div>
-        </div>
+    <main id="main" className="vessel-report min-h-screen bg-[#fafaf7] text-[#203039]">
+      <ReportHeader mapHref={mapHref} />
+      <div className="mx-auto max-w-[1120px] px-5 py-12 sm:px-8">
+        <h1 className="mb-2 text-xl font-medium">Report unavailable</h1>
+        <p role="alert" className="text-sm text-[#596970]">{message}</p>
       </div>
     </main>
   );
@@ -116,7 +111,7 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
     let cancelled = false;
     api.getVesselReport(vesselId)
       .then((data) => { if (!cancelled) setReport(data); })
-      .catch(() => { if (!cancelled) setError("Failed to load report"); });
+      .catch(() => { if (!cancelled) setError("Couldn’t load this vessel’s report. Try again from the map."); });
     return () => { cancelled = true; };
   }, [api, vesselId]);
 
@@ -131,7 +126,6 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
   const trail = report.position_trail as Record<string, unknown>[];
   const audit = report.alert_audit_trail as Record<string, unknown>[];
   const notes = report.operator_notes ? String(report.operator_notes) : null;
-  const generatedAt = report.generated_at ? new Date(String(report.generated_at)) : null;
   const history = report.history as History | undefined;
   const pastAlerts = (report.alert_history ?? []) as Record<string, unknown>[];
   const alertTotal = Number(report.alert_history_total ?? 0);
@@ -151,228 +145,128 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
     }
   }
 
-  const score = Number(risk.score ?? 0);
-  const level = riskLevel(score);
-  const actionText = String(risk.recommended_action ?? "normal").toUpperCase();
+  const score = typeof risk.score === "number" && Number.isFinite(risk.score) ? risk.score : null;
+  const assessedAt = formatAssessmentTime(typeof risk.assessed_at === "string" ? risk.assessed_at : null);
 
   return (
-    <main id="main" className="min-h-screen">
-      <SiteNav mapHref={mapHref} />
+    <main id="main" className="vessel-report min-h-screen bg-[#fafaf7] text-[#203039] print:bg-white">
+      <ReportHeader mapHref={mapHref} printable />
+      <article className="mx-auto max-w-[1120px] px-5 pb-16 pt-7 sm:px-8 sm:pt-10 print:px-0 print:py-0">
+        <header className="mb-7">
+          <p className="mb-2 text-sm text-[#596970]">{isDemo ? "Demo vessel report" : "Vessel report"}</p>
+          <h1 className="break-words text-2xl font-semibold leading-tight sm:text-3xl">{String(vessel.name ?? "Unknown vessel")}</h1>
+          <p className="mt-2 font-mono text-sm text-[#596970]">MMSI {String(vessel.mmsi ?? "—")}</p>
+          {isDemo && <p className="mt-3 text-sm text-[#596970]">Sample positions and alerts from the LA Harbor scenario.</p>}
+        </header>
 
-      <div className="max-w-[1100px] mx-auto px-8 pt-10 pb-24">
-
-        <div className="flex items-center justify-between mb-6 pb-5 border-b border-white/[0.06]">
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-medium tracking-[0.08em] uppercase text-slate-400">
-              {isDemo ? "Demo vessel report" : "Vessel report"}
-            </span>
+        <dl className="mb-8 grid gap-x-8 gap-y-5 border-y border-[#d2d7d6] py-5 sm:grid-cols-[1fr_1.5fr_1.5fr]">
+          <div>
+            <dt className="text-xs text-[#596970]">Risk score</dt>
+            <dd className="mt-1 text-lg font-medium tabular-nums">
+              {score === null ? "Not assessed" : <>{score}<span className="text-sm font-normal text-[#596970]"> / 100 · {riskLabel(score)}</span></>}
+            </dd>
           </div>
-          <div className="flex items-center gap-3">
-            {generatedAt && (
-              <span className="font-mono text-[10px] text-slate-500 tabular-nums">
-                {generatedAt.toLocaleString()}
-              </span>
-            )}
-            <button
-              onClick={() => window.print()}
-              className="btn-secondary text-[11.5px] px-3 py-1.5 rounded-md inline-flex items-center gap-1.5"
-            >
-              <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 6 2 18 2 18 9" />
-                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                <rect x="6" y="14" width="12" height="8" />
-              </svg>
-              Print / PDF
-            </button>
-          </div>
-        </div>
+          <KV label={isDemo ? "Scenario assessment" : "Last assessed"} value={score === null ? "No assessment recorded" : assessedAt ?? "Time unavailable"} />
+          <KV label="Last AIS report" value={reportTime(position?.timestamp)} />
+        </dl>
 
-        {/* Hero */}
-        <div className="mb-8">
-          {isDemo && <p className="mb-4 text-sm text-slate-400">Simulated LA Harbor scenario. Vessel positions and alerts are sample data.</p>}
-          <div className="text-[10.5px] font-mono tracking-[0.22em] text-slate-500 uppercase mb-3">Subject Vessel</div>
-          <h1 className="text-[36px] font-semibold tracking-[-0.02em] leading-[1.08] mb-3">
-            {String(vessel.name)}
-            <span className="font-mono text-[16px] text-slate-500 tracking-normal ml-3">
-              MMSI {String(vessel.mmsi ?? "—")}
-            </span>
-          </h1>
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className={`text-[10.5px] font-semibold py-1 px-2.5 rounded-full border uppercase tracking-[0.14em] ${actionPill(String(risk.recommended_action ?? "normal"))}`}>
-              {actionText}
-            </span>
-            <span className="font-mono text-[11px] text-slate-500">
-              Risk <span className={`font-semibold ${scoreTone(level)}`}>{score}</span> / 100
-            </span>
-            {vessel.vessel_type ? (
-              <span className="font-mono text-[11px] text-slate-500">
-                · {String(vessel.vessel_type).replace(/_/g, " ")}
-              </span>
-            ) : null}
-            {vessel.flag_state ? (
-              <span className="font-mono text-[11px] text-slate-500">
-                · {String(vessel.flag_state)}
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        {/* Identity + Risk */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <Card label="Vessel Identity">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              <KV label="MMSI" value={String(vessel.mmsi ?? "—")} />
-              <KV label="IMO" value={String(vessel.imo ?? "—")} />
+        <div className="grid gap-x-12 lg:grid-cols-2">
+          <Section title="Vessel details">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <KV label="IMO" value={String(vessel.imo ?? "—")} mono />
+              <KV label="Callsign" value={String(vessel.callsign ?? "—")} mono />
               <KV label="Type" value={String(vessel.vessel_type ?? "—").replace(/_/g, " ")} />
               <KV label="Flag" value={String(vessel.flag_state ?? "—")} />
-              {vessel.length ? <KV label="Length" value={`${Number(vessel.length).toFixed(1)} m`} /> : null}
-              {vessel.beam ? <KV label="Beam" value={`${Number(vessel.beam).toFixed(1)} m`} /> : null}
-              {vessel.draft ? <KV label="Draft" value={`${Number(vessel.draft).toFixed(1)} m`} /> : null}
-              {vessel.callsign ? <KV label="Callsign" value={String(vessel.callsign)} /> : null}
-            </div>
-          </Card>
-
-          <Card label="Risk Assessment">
-            <div className="flex items-baseline gap-4 mb-3">
-              <div className={`text-[48px] font-bold font-mono tabular-nums tracking-[-0.03em] leading-none ${scoreTone(level)}`}>
-                {score}
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-500">Score · 100</span>
-                <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] mt-1 ${scoreTone(level)}`}>
-                  {level}
-                </span>
-              </div>
-            </div>
-            <div className="h-1.5 w-full rounded-full bg-white/[0.05] overflow-hidden mb-3">
-              <div
-                className={`h-full rounded-full ${sevColor(score / 100)}`}
-                style={{ width: `${Math.min(score, 100)}%` }}
-              />
-            </div>
-            {risk.explanation ? (
-              <p className="text-[12px] text-slate-400 leading-[1.6]">{String(risk.explanation)}</p>
-            ) : null}
-          </Card>
-        </div>
-
-        {/* Position */}
-        {position && (
-          <Card label="Last reported position" className="mb-4">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <KV label="Latitude" value={Number(position.latitude).toFixed(5)} mono />
-              <KV label="Longitude" value={Number(position.longitude).toFixed(5)} mono />
+              {vessel.length != null && <KV label="Length" value={`${Number(vessel.length).toFixed(1)} m`} mono />}
+              {vessel.beam != null && <KV label="Beam" value={`${Number(vessel.beam).toFixed(1)} m`} mono />}
+              {vessel.draft != null && <KV label="Draft" value={`${Number(vessel.draft).toFixed(1)} m`} mono />}
+              {vessel.destination ? <KV label="Destination" value={String(vessel.destination)} /> : null}
+            </dl>
+          </Section>
+          <Section title="Last position">
+            {position ? <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+              <KV label="Latitude" value={`${Number(position.latitude).toFixed(5)}°`} mono />
+              <KV label="Longitude" value={`${Number(position.longitude).toFixed(5)}°`} mono />
               <KV label="Speed" value={position.speed_over_ground != null ? `${Number(position.speed_over_ground).toFixed(1)} kn` : "—"} mono />
               <KV label="Course" value={position.course_over_ground != null ? `${Number(position.course_over_ground).toFixed(0)}°` : "—"} mono />
               <KV label="Heading" value={position.heading != null ? `${Number(position.heading).toFixed(0)}°` : "—"} mono />
-            </div>
-          </Card>
-        )}
+            </dl> : <p className="text-sm text-[#596970]">No position recorded.</p>}
+          </Section>
+        </div>
 
-        {/* Signals */}
-        {signals?.length > 0 && (
-          <Card label={`Anomaly Signals · ${signals.length}`} className="mb-4">
-            <div className="space-y-3">
-              {signals.map((s, i) => {
-                const sev = Number(s.severity ?? 0);
-                const sevPct = Math.round(sev * 100);
-                return (
-                  <div key={i} className="py-2 border-t border-white/[0.05] first:border-t-0 first:pt-0">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[12.5px] text-slate-200 font-medium">
-                        {SIGNAL_LABELS[String(s.anomaly_type)] ?? String(s.anomaly_type).replace(/_/g, " ")}
-                      </span>
-                      <span className={`font-mono text-[11px] font-semibold tabular-nums ${sevText(sev)}`}>
-                        {sevPct}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-white/[0.04] rounded-full h-[3px] overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${sevColor(sev)}`}
-                        style={{ width: `${sevPct}%` }}
-                      />
-                    </div>
-                    {s.description ? (
-                      <p className="text-[11px] text-slate-500 mt-1.5 leading-[1.55]">{String(s.description)}</p>
-                    ) : null}
+        {(risk.explanation || signals?.length > 0) ? (
+          <Section title="Detected activity" ruled>
+            {risk.explanation ? <p className="mb-4 max-w-[75ch] text-sm leading-relaxed">{String(risk.explanation)}</p> : null}
+            {signals?.length > 0 && <div className="divide-y divide-[#d2d7d6]">
+              {signals.map((signal, index) => (
+                <div key={index} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-baseline justify-between gap-4 text-sm">
+                    <h3 className="font-medium">{SIGNAL_LABELS[String(signal.anomaly_type)] ?? String(signal.anomaly_type).replace(/_/g, " ")}</h3>
+                    <span className="shrink-0 text-xs text-[#596970]">Severity <span className="font-mono tabular-nums">{Math.round(Number(signal.severity ?? 0) * 100)} / 100</span></span>
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
+                  {signal.description ? <p className="mt-1 max-w-[85ch] text-sm leading-relaxed text-[#596970]">{String(signal.description)}</p> : null}
+                </div>
+              ))}
+            </div>}
+          </Section>
+        ) : null}
 
-        {history && (
-          <Card label={history.durable ? "Saved history" : "Session history"} className="mb-4">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <KV label="Position reports" value={history.position_count.toLocaleString()} mono />
-              <KV label="First retained report" value={history.oldest_report_at ? new Date(history.oldest_report_at).toLocaleString() : "—"} />
-              <KV label="Latest retained report" value={history.newest_report_at ? new Date(history.newest_report_at).toLocaleString() : "—"} />
-            </div>
-            <p className="mt-4 text-[12px] leading-relaxed text-slate-400">
-              {history.durable
-                ? `Tracks are kept for up to ${history.retention_days} days, within a shared ${history.max_position_rows.toLocaleString()}-position limit. The last known position may be kept longer. Alerts and operator notes remain saved.`
-                : "This service is using temporary storage. History may be lost when it restarts."}
-            </p>
-            <p className="mt-2 text-[11px] text-slate-500">This report uses the records currently retained for this vessel. Print / PDF includes the records shown below.</p>
-          </Card>
-        )}
-        {historyError && <p role="alert" className="mb-4 text-sm text-amber-300">{historyError}</p>}
+        {history && <Section title="Saved records" ruled>
+          <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-[1fr_1.5fr_1.5fr]">
+            <KV label="Positions" value={history.position_count.toLocaleString()} mono />
+            <KV label="First saved report" value={reportTime(history.oldest_report_at)} />
+            <KV label="Last saved report" value={reportTime(history.newest_report_at)} />
+          </dl>
+          <p className="mt-4 text-xs leading-relaxed text-[#596970]">
+            {history.durable
+              ? `Positions are kept for up to ${history.retention_days} days (${history.max_position_rows.toLocaleString()} across all vessels). Last known positions, alerts and notes may remain longer.`
+              : "Temporary storage. These records may be lost when the service restarts."}
+          </p>
+        </Section>}
+        {historyError && <p role="alert" className="mb-5 text-sm text-[#9b402d]">{historyError}</p>}
 
         {(trail?.length > 0 || (history && positionCursors.length > 1)) && (
-          <Card label={`Position history · ${history && trail.length ? `${history.position_offset + 1}–${history.position_offset + trail.length} of ${history.position_count.toLocaleString()}` : `${trail.length} points`}`} className="mb-4" padding="none">
-            {trail.length === 0 && <p className="px-5 pb-4 text-sm text-slate-400">These older positions are no longer retained.</p>}
-            <div className="overflow-x-auto scroll-thin">
-              <table className="w-full text-[11.5px]">
-                <thead>
-                  <tr className="border-b border-white/[0.06]">
-                    <Th>Time</Th>
-                    <Th>Latitude</Th>
-                    <Th>Longitude</Th>
-                    <Th>Speed</Th>
-                    <Th>Course</Th>
-                    <Th>Heading</Th>
-                  </tr>
-                </thead>
+          <Section title="Position history" detail={history && trail.length ? `${history.position_offset + 1}–${history.position_offset + trail.length} of ${history.position_count.toLocaleString()}` : `${trail.length} positions`} ruled>
+            {trail.length === 0 && <p className="pb-4 text-sm text-[#596970]">These older positions are no longer saved.</p>}
+            <div className="overflow-x-auto print:overflow-visible">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-[#d2d7d6]">
+                  <Th>Time</Th><Th>Latitude</Th><Th>Longitude</Th><Th>Speed</Th><Th>Course</Th><Th>Heading</Th>
+                </tr></thead>
                 <tbody>
-                  {trail.map((p, i) => (
-                    <tr key={i} className="border-b border-white/[0.03] last:border-b-0 font-mono text-slate-400 hover:bg-white/[0.015]">
-                      <Td>{new Date(String(p.timestamp)).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</Td>
-                      <Td>{Number(p.latitude).toFixed(5)}</Td>
-                      <Td>{Number(p.longitude).toFixed(5)}</Td>
-                      <Td>{p.speed_over_ground != null ? Number(p.speed_over_ground).toFixed(1) : "—"}</Td>
-                      <Td>{p.course_over_ground != null ? `${Number(p.course_over_ground).toFixed(0)}°` : "—"}</Td>
-                      <Td>{p.heading != null ? `${Number(p.heading).toFixed(0)}°` : "—"}</Td>
+                  {trail.map((point, index) => (
+                    <tr key={index} className="border-b border-[#e2e6e2] last:border-0 hover:bg-[#eef0ec]">
+                      <Td>{reportTime(point.timestamp, true)}</Td>
+                      <Td>{Number(point.latitude).toFixed(5)}</Td>
+                      <Td>{Number(point.longitude).toFixed(5)}</Td>
+                      <Td>{point.speed_over_ground != null ? `${Number(point.speed_over_ground).toFixed(1)} kn` : "—"}</Td>
+                      <Td>{point.course_over_ground != null ? `${Number(point.course_over_ground).toFixed(0)}°` : "—"}</Td>
+                      <Td>{point.heading != null ? `${Number(point.heading).toFixed(0)}°` : "—"}</Td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             {history && (history.next_position_cursor || positionCursors.length > 1) && (
-              <HistoryPager
-                hasNewer={positionCursors.length > 1} hasOlder={history.next_position_cursor !== null}
-                loading={historyLoading}
+              <HistoryPager hasNewer={positionCursors.length > 1} hasOlder={history.next_position_cursor !== null} loading={historyLoading}
                 onNewer={() => void loadHistory(positionCursors.slice(0, -1), alertOffset)}
-                onOlder={() => {
-                  if (history.next_position_cursor) void loadHistory([...positionCursors, history.next_position_cursor], alertOffset);
-                }}
-              />
+                onOlder={() => { if (history.next_position_cursor) void loadHistory([...positionCursors, history.next_position_cursor], alertOffset); }} />
             )}
-          </Card>
+          </Section>
         )}
 
         {pastAlerts.length > 0 && (
-          <Card label={`Alert history · ${alertTotal.toLocaleString()} saved`} className="mb-4">
-            <div className="divide-y divide-white/[0.06]">
+          <Section title="Alert history" detail={`${alertTotal.toLocaleString()} saved`} ruled>
+            <div className="divide-y divide-[#d2d7d6]">
               {pastAlerts.map((alert) => (
-                <div key={String(alert.id)} className="py-3 first:pt-0 last:pb-0">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
-                    <time className="text-slate-400">{new Date(String(alert.created_at)).toLocaleString()}</time>
-                    <span className="capitalize text-slate-200">{String(alert.status).replace(/_/g, " ")}</span>
-                    <span className="font-mono text-slate-400">Risk {Number(alert.risk_score ?? 0)} / 100</span>
+                <div key={String(alert.id)} className="py-4 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-sm">
+                    <time className="text-[#596970]">{reportTime(alert.created_at)}</time>
+                    <span className="capitalize">{String(alert.status).replace(/_/g, " ")}</span>
+                    <span className="text-[#596970]">Risk <span className="font-mono tabular-nums">{alert.risk_score == null ? "—" : `${Number(alert.risk_score)} / 100`}</span></span>
                   </div>
-                  {alert.explanation ? <p className="mt-2 text-[12px] leading-relaxed text-slate-400">{String(alert.explanation)}</p> : null}
-                  {alert.operator_notes ? <p className="mt-2 whitespace-pre-wrap text-[12px] text-slate-300"><span className="text-slate-500">Operator note: </span>{String(alert.operator_notes)}</p> : null}
+                  {alert.explanation ? <p className="mt-2 max-w-[85ch] text-sm leading-relaxed">{String(alert.explanation)}</p> : null}
+                  {alert.operator_notes ? <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[#596970]">Note: {String(alert.operator_notes)}</p> : null}
                 </div>
               ))}
             </div>
@@ -381,103 +275,66 @@ function ReportContent({ vesselId, mode }: { vesselId: string | null; mode: Data
                 onNewer={() => void loadHistory(positionCursors, Math.max(0, alertOffset - history.page_size))}
                 onOlder={() => void loadHistory(positionCursors, alertOffset + history.page_size)} />
             )}
-          </Card>
+          </Section>
         )}
 
-        {/* Audit Trail */}
         {audit?.length > 0 && (
-          <Card label="Recent operator activity" className="mb-4">
-            <div className="space-y-1.5">
-              {audit.map((e, i) => (
-                <div key={i} className="flex items-start gap-3 text-[11.5px] py-1.5 border-t border-white/[0.04] first:border-t-0 first:pt-0">
-                  <span className="text-slate-600 font-mono shrink-0 tabular-nums">
-                    {new Date(String(e.timestamp)).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  <span className="text-slate-300">
-                    <span className="font-semibold text-slate-200">{String(e.action)}</span>
-                    {e.details ? <span className="text-slate-500"> · {String(e.details)}</span> : null}
-                  </span>
+          <Section title="Review history" ruled>
+            <div className="divide-y divide-[#d2d7d6]">
+              {audit.map((entry, index) => (
+                <div key={index} className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[220px_1fr] sm:gap-6">
+                  <time className="text-sm text-[#596970]">{reportTime(entry.timestamp)}</time>
+                  <p className="text-sm leading-relaxed"><span className="capitalize">{String(entry.action).replace(/_/g, " ")}</span>{entry.details ? <span className="text-[#596970]"> · {String(entry.details)}</span> : null}</p>
                 </div>
               ))}
             </div>
-          </Card>
+          </Section>
         )}
 
-        {/* Notes */}
-        {notes && pastAlerts.length === 0 && (
-          <Card label="Operator Notes" className="mb-4">
-            <p className="text-[13px] text-slate-300 leading-[1.65]">{notes}</p>
-          </Card>
-        )}
+        {notes && pastAlerts.length === 0 && <Section title="Notes" ruled><p className="whitespace-pre-wrap text-sm leading-relaxed">{notes}</p></Section>}
 
-        {/* Footer */}
-        <div className="mt-12 pt-6 border-t border-white/[0.06] text-center text-[10.5px] font-mono tracking-[0.18em] uppercase text-slate-600">
-          {isDemo ? "Sample vessel report" : "AIS vessel report"}
+        <div className="mt-6 flex flex-wrap justify-between gap-2 border-t border-[#d2d7d6] pt-4 text-xs text-[#596970]">
+          <span>{report.generated_at ? `Generated ${reportTime(report.generated_at)}` : "Vessel report"}</span>
+          <span>{isDemo ? "Sample data" : "Includes the records shown on this page"}</span>
         </div>
-      </div>
-
-      <SiteFooter />
+      </article>
     </main>
   );
 }
 
-function Card({
-  label,
-  children,
-  className = "",
-  padding = "default",
-}: {
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-  padding?: "default" | "none";
-}) {
+function Section({ title, detail, children, ruled = false }: { title: string; detail?: string; children: React.ReactNode; ruled?: boolean }) {
   return (
-    <div className={`glass rounded-xl overflow-hidden ${className}`}>
-      <div className={`px-5 pt-4 pb-2 ${padding === "none" ? "" : ""}`}>
-        <h2 className="text-[10px] font-mono text-slate-500 uppercase tracking-[0.18em]">{label}</h2>
+    <section className={`mb-8 break-inside-avoid ${ruled ? "border-t border-[#d2d7d6] pt-5" : ""}`}>
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base font-medium">{title}</h2>
+        {detail && <span className="text-xs tabular-nums text-[#596970]">{detail}</span>}
       </div>
-      <div className={padding === "none" ? "" : "px-5 pb-5"}>{children}</div>
-    </div>
+      {children}
+    </section>
   );
 }
 
-function KV({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-[9.5px] font-mono uppercase tracking-[0.14em] text-slate-500">{label}</div>
-      <div className={`text-[12.5px] text-slate-200 mt-1 ${mono ? "font-mono tabular-nums" : ""}`}>{value}</div>
-    </div>
-  );
+function KV({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return <div><dt className="text-xs text-[#596970]">{label}</dt><dd className={`mt-1 text-sm leading-relaxed ${mono ? "font-mono tabular-nums" : ""}`}>{value}</dd></div>;
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-4 py-2.5 text-left text-[9.5px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-500">
-      {children}
-    </th>
-  );
+  return <th className="whitespace-nowrap pb-3 pr-5 text-left text-xs font-normal text-[#596970] last:pr-0 print:whitespace-normal print:pr-2">{children}</th>;
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 py-1.5">{children}</td>;
+  return <td className="whitespace-nowrap py-3 pr-5 font-mono text-xs tabular-nums last:pr-0 print:whitespace-normal print:pr-2">{children}</td>;
 }
 
 function HistoryPager({ hasNewer, hasOlder, loading, onNewer, onOlder }: {
-  hasNewer: boolean;
-  hasOlder: boolean;
-  loading: boolean;
-  onNewer: () => void;
-  onOlder: () => void;
+  hasNewer: boolean; hasOlder: boolean; loading: boolean; onNewer: () => void; onOlder: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-t border-white/[0.06] px-4 py-3 print:hidden">
-      <span aria-live="polite" className="text-[11px] text-slate-500">{loading ? "Loading history…" : "Older records on later pages"}</span>
+    <div className="mt-3 flex items-center justify-between gap-4 border-t border-[#d2d7d6] pt-3 print:hidden">
+      <span aria-live="polite" className="text-xs text-[#596970]">{loading ? "Loading…" : ""}</span>
       <div className="flex gap-2">
-        <button type="button" disabled={loading || !hasNewer} onClick={onNewer}
-          className="btn-secondary rounded-md px-3 py-1.5 text-xs disabled:cursor-default disabled:opacity-35">Newer</button>
-        <button type="button" disabled={loading || !hasOlder} onClick={onOlder}
-          className="btn-secondary rounded-md px-3 py-1.5 text-xs disabled:cursor-default disabled:opacity-35">Older</button>
+        <button type="button" disabled={loading || !hasNewer} onClick={onNewer} className="min-h-11 px-3 text-sm hover:bg-[#eef0ec] disabled:cursor-default disabled:opacity-35">← Newer</button>
+        <button type="button" disabled={loading || !hasOlder} onClick={onOlder} className="min-h-11 px-3 text-sm hover:bg-[#eef0ec] disabled:cursor-default disabled:opacity-35">Older →</button>
       </div>
     </div>
   );

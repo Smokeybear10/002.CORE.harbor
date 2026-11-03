@@ -10,7 +10,7 @@ import type {
   SatelliteInfoResponse,
 } from "@/app/lib/api";
 import { useDataSource } from "@/app/lib/data-source";
-import { riskTextClass, riskLevel, RISK_THRESHOLDS } from "@/app/lib/risk";
+import { formatAssessmentTime, riskTextClass, riskLabel, RISK_THRESHOLDS } from "@/app/lib/risk";
 
 import type { SatelliteOverlay } from "./MapView";
 
@@ -24,38 +24,28 @@ interface VesselDetailProps {
   verificationFocus?: { latitude: number; longitude: number } | null;
 }
 
-function actionStyle(action: string) {
-  switch (action) {
-    case "escalate": return "bg-red-500/10 text-red-400 border-red-500/25";
-    case "verify": return "bg-orange-500/10 text-orange-400 border-orange-500/25";
-    case "monitor": return "bg-yellow-500/10 text-yellow-400 border-yellow-500/25";
-    case "normal": return "bg-slate-500/10 text-slate-300 border-slate-500/25";
-    default: return "bg-slate-500/10 text-slate-400 border-slate-500/25";
-  }
-}
-
 const riskColor = riskTextClass;
 
 function severityLabel(severity: number): { text: string; color: string } {
   if (severity >= 0.55) return { text: "Critical", color: "text-red-400" };
   if (severity >= 0.35) return { text: "High", color: "text-orange-400" };
   if (severity >= 0.2) return { text: "Moderate", color: "text-yellow-400" };
-  return { text: "Low", color: "text-green-400" };
+  return { text: "Low", color: "text-slate-400" };
 }
 
 const SIGNAL_LABELS: Record<string, string> = {
-  ais_gap: "AIS Dark Period",
-  kinematic_implausibility: "Position Spoofing",
-  geofence_breach: "Restricted Zone Breach",
-  type_mismatch: "Identity Mismatch",
-  route_deviation: "Route Deviation",
+  ais_gap: "AIS reporting gap",
+  kinematic_implausibility: "Position inconsistency",
+  geofence_breach: "Restricted area entry",
+  type_mismatch: "Vessel type mismatch",
+  route_deviation: "Route deviation",
   loitering: "Loitering",
-  zone_lingering: "Zone Lingering",
-  speed_anomaly: "Speed Anomaly",
-  heading_anomaly: "Course Anomaly",
-  statistical_outlier: "Regional Outlier",
-  collision_risk: "COLREGS Non-Compliance",
-  dark_ship_optical: "Dark Ship (Optical)",
+  zone_lingering: "Time in zone",
+  speed_anomaly: "Unusual speed",
+  heading_anomaly: "Unusual course",
+  statistical_outlier: "Unusual regional activity",
+  collision_risk: "Collision risk",
+  dark_ship_optical: "Optical detection without AIS",
 };
 
 function signalLabel(type: string): string {
@@ -115,12 +105,11 @@ function RiskSparkline({ data }: { data: RiskHistoryPoint[] }) {
   const last = scores[scores.length - 1];
   const first = scores[0];
   const trend = last - first;
-  const trendLabel = trend > 5 ? "Escalating" : trend < -5 ? "De-escalating" : "Stable";
+  const trendLabel = trend > 5 ? "Rising" : trend < -5 ? "Falling" : "Steady";
   const trendIcon = trend > 5 ? "\u2197" : trend < -5 ? "\u2198" : "\u2192";
-  const trendColor = trend > 5 ? "text-red-400" : trend < -5 ? "text-green-400" : "text-slate-500";
+  const trendColor = trend > 5 ? "text-red-400" : "text-slate-500";
 
   const lineColor = last >= RISK_THRESHOLDS.escalate ? "#a53735" : last >= RISK_THRESHOLDS.verify ? "#b6532b" : last >= RISK_THRESHOLDS.monitor ? "#9b641b" : "#355b69";
-  const fillOpacity = "0.08";
 
   // Threshold y positions
   const threshY = (score: number) => padTop + (1 - score / 100) * chartH;
@@ -210,7 +199,7 @@ export default function VesselDetailPanel({
       if (!cancelled) setRiskHistory(data);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [api, vessel.id]);
+  }, [api, vessel.id, vessel.risk_assessed_at]);
 
   useEffect(() => {
     let cancelled = false;
@@ -397,9 +386,8 @@ export default function VesselDetailPanel({
   };
 
   const riskScore = vessel.risk_score ?? 0;
-  const hasRiskScore = vessel.risk_score !== null;
-  const level = riskLevel(riskScore);
-  const action = level === "normal" ? "normal" : (vessel.recommended_action ?? "normal");
+  const hasRiskScore = vessel.risk_score != null;
+  const assessmentTime = formatAssessmentTime(vessel.risk_assessed_at);
   const positionTimestamp = vessel.latest_position?.timestamp;
   const positionTime = positionTimestamp
     ? /(?:Z|[+-]\d{2}:\d{2})$/i.test(positionTimestamp) ? positionTimestamp : `${positionTimestamp}Z`
@@ -455,41 +443,26 @@ export default function VesselDetailPanel({
 
       {/* Inactive / Resolved Status Banner */}
       {(vessel.is_inactive || vessel.is_resolved) && (
-        <div className="bg-slate-500/10 border-b border-[var(--workspace-border)] px-4 py-2 flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-            {vessel.is_resolved ? "RESOLVED" : vessel.status_reason?.toLowerCase().includes("stationary") ? "STATIONARY" : "INACTIVE"}
-          </span>
-          <span className="text-[10px] text-slate-500 truncate">
-            {vessel.status_reason || "No active threat profile"}
-          </span>
+        <div className="border-b border-[var(--workspace-border)] px-4 py-2 text-xs leading-5 text-slate-400">
+          {vessel.status_reason || (vessel.is_resolved ? "Alert resolved" : "Inactive")}
         </div>
       )}
 
       {/* Risk Score */}
       <div className="px-4 py-3 border-b border-[var(--workspace-border)]">
-        <div className="flex items-center gap-3 mb-2">
-          <span className={`text-3xl font-semibold tabular-nums leading-none ${riskColor(riskScore)}`}>
-            {hasRiskScore ? Math.round(riskScore) : "—"}
-            {hasRiskScore && <span className="ml-1 text-sm font-normal text-slate-400">/100</span>}
-          </span>
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-slate-200">Risk score</span>
-              <span className={`text-xs font-medium capitalize px-1.5 py-0.5 rounded border ${actionStyle(action)}`}>
-                {hasRiskScore ? action : "Pending"}
-              </span>
-            </div>
-            <div className="w-full bg-[var(--workspace-subtle)] rounded-full h-1 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  riskScore >= RISK_THRESHOLDS.escalate ? "bg-red-400" : riskScore >= RISK_THRESHOLDS.verify ? "bg-orange-400" : riskScore >= RISK_THRESHOLDS.monitor ? "bg-yellow-400" : "bg-slate-400"
-                }`}
-                style={{ width: `${riskScore}%` }}
-              />
-            </div>
+        <dl className="space-y-2.5">
+          <div className="flex items-baseline justify-between gap-4 text-sm">
+            <dt className="text-slate-400">Risk score</dt>
+            <dd className={`flex items-baseline gap-2 ${riskColor(vessel.risk_score)}`}>
+              {hasRiskScore && <span className="font-mono tabular-nums">{Number(riskScore.toFixed(1))}<span className="text-xs text-slate-400"> / 100</span></span>}
+              <span>{riskLabel(vessel.risk_score)}</span>
+            </dd>
           </div>
-        </div>
+          {hasRiskScore && <div className="flex justify-between gap-4 text-xs leading-5">
+            <dt className="shrink-0 text-slate-400">{isDemo ? "Source" : "Scored"}</dt>
+            <dd className="text-right text-slate-400">{isDemo ? "Simulation" : assessmentTime ?? "Time unavailable"}</dd>
+          </div>}
+        </dl>
       {/* Alert Actions */}
       {alertId && (
         <div className="mt-4 border-t border-[var(--workspace-border)] pt-3">
@@ -507,21 +480,21 @@ export default function VesselDetailPanel({
               disabled={actionLoading !== null}
               className="min-h-11 flex-1 py-2 px-2 bg-[#355b69] hover:bg-[#294955] disabled:opacity-50 text-[#fffdf7] text-xs font-medium rounded transition-colors"
             >
-              {actionLoading === "acknowledge" ? "..." : "Acknowledge"}
+              {actionLoading === "acknowledge" ? "Saving…" : "Acknowledge"}
             </button>
             <button
               onClick={() => handleAlertAction("dismiss")}
               disabled={actionLoading !== null}
               className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
-              {actionLoading === "dismiss" ? "..." : "Dismiss"}
+              {actionLoading === "dismiss" ? "Saving…" : "Dismiss"}
             </button>
             <button
               onClick={() => handleAlertAction("pin")}
               disabled={actionLoading !== null}
               className="min-h-11 flex-1 py-2 px-2 border border-[var(--workspace-border)] hover:bg-[var(--workspace-subtle)] disabled:opacity-50 text-slate-300 text-xs font-medium rounded transition-colors"
             >
-              {actionLoading === "pin" ? "..." : "Pin"}
+              {actionLoading === "pin" ? "Saving…" : "Pin"}
             </button>
           </div>
         </div>
@@ -663,8 +636,8 @@ export default function VesselDetailPanel({
       {vessel.anomaly_signals.length > 0 && (
         <section className="border-b border-[var(--workspace-border)] px-4 py-4">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-slate-200">Signals</h3>
-            <span className="text-xs text-slate-400">{vessel.anomaly_signals.length} detected</span>
+            <h3 className="text-sm font-medium text-slate-200">Detected activity</h3>
+            <span className="text-xs text-slate-400">{vessel.anomaly_signals.length}</span>
           </div>
           <div className="divide-y divide-[var(--workspace-border)]">
             {vessel.anomaly_signals.map((signal, i) => {
@@ -726,42 +699,41 @@ export default function VesselDetailPanel({
       {/* Verification Action */}
       {riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3" data-tour="satellite-section">
-          <h3 className="text-sm font-medium text-slate-200 mb-2">Verification</h3>
+          <h3 className="text-sm font-medium text-slate-200 mb-2">Satellite imagery</h3>
           {isDemo ? (
-            <p className="text-xs leading-relaxed text-slate-400">Live satellite requests are unavailable in this demo. Use the Satellite map layer to explore basemap imagery.</p>
+            <p className="text-xs leading-relaxed text-slate-400">Satellite requests are unavailable in simulation.</p>
           ) : verification ? (
             <SatelliteVerificationResult
               verification={verification}
               vesselPosition={vessel.latest_position}
               onOverlay={onSatelliteOverlay}
             />
+          ) : !satelliteInfo?.configured ? (
+            <p className="text-xs text-slate-400">Satellite imagery is not connected.</p>
           ) : (
             <div className="space-y-2.5">
               <p className="text-[10px] text-slate-500 leading-relaxed">
-                Request the latest available satellite imagery for the current vessel position or the current map focus.
+                Latest available imagery at this position.
               </p>
               <button
                 onClick={handleVerify}
                 disabled={verifyLoading}
                 className="w-full py-2 px-3 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/25 hover:border-blue-500/40 disabled:bg-[var(--workspace-subtle)] disabled:border-[var(--workspace-border)] disabled:text-slate-600 text-blue-400 text-[11px] font-medium rounded-lg transition-all"
               >
-                {verifyLoading ? "Requesting..." : "Request Satellite Imagery"}
+                {verifyLoading ? "Requesting…" : "Request imagery"}
               </button>
             </div>
           )}
         </div>
       )}
 
-      {!isDemo && riskScore >= RISK_THRESHOLDS.monitor && (
+      {!isDemo && satelliteInfo?.configured && riskScore >= RISK_THRESHOLDS.monitor && (
         <div className="px-4 py-3 border-t border-[var(--workspace-border)]">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-slate-200">Imagery Browser</h3>
-            <span className="text-xs text-slate-400">
-              {satelliteInfo?.configured ? "live" : "fallback"}
-            </span>
+            <h3 className="text-sm font-medium text-slate-200">Image search</h3>
           </div>
           <p className="text-[10px] text-slate-500 leading-relaxed mb-3">
-            Browse recent satellite acquisitions for the vessel area or the current map focus, then apply the selected scene as a map overlay.
+            Choose an image to display on the map.
           </p>
 
           <div className="space-y-2.5">
