@@ -55,6 +55,49 @@ from app.services.alert_service import get_alerts, update_alert_status, generate
 router = APIRouter()
 
 
+def _latest_risk_assessments(
+    db: Session,
+    vessel_ids: list[str],
+    until: datetime | None = None,
+    allow_alert_fallback: bool = True,
+) -> dict[str, RiskHistoryORM | AlertORM]:
+    assessments = {}
+    remaining = set(vessel_ids)
+    for model, timestamp in ((RiskHistoryORM, RiskHistoryORM.timestamp), (AlertORM, AlertORM.created_at)):
+        if not remaining or (model is AlertORM and not allow_alert_fallback):
+            break
+        query = db.query(
+            model.id,
+            func.row_number().over(
+                partition_by=model.vessel_id,
+                order_by=(timestamp.desc(), model.id.desc()),
+            ).label("rank"),
+        ).filter(model.vessel_id.in_(remaining), model.risk_score.isnot(None))
+        if until is not None:
+            query = query.filter(timestamp <= until)
+        latest = query.subquery()
+        records = db.query(model).join(latest, latest.c.id == model.id).filter(latest.c.rank == 1).all()
+        assessments.update({record.vessel_id: record for record in records})
+        remaining.difference_update(assessments)
+    return assessments
+
+
+def _risk_fields(assessment: RiskHistoryORM | AlertORM | None) -> dict:
+    assessed_at = assessment.timestamp if isinstance(assessment, RiskHistoryORM) else None
+    return {
+        "risk_score": assessment.risk_score if assessment is not None else None,
+        "recommended_action": assessment.recommended_action if assessment is not None else None,
+        "risk_assessed_at": assessed_at.replace(tzinfo=timezone.utc) if assessed_at else None,
+    }
+
+
+def _alert_matches_assessment(alert: AlertORM | None, assessment: RiskHistoryORM | AlertORM | None) -> bool:
+    return alert is not None and assessment is not None and (
+        alert.risk_score == assessment.risk_score
+        and alert.recommended_action == assessment.recommended_action
+    )
+
+
 def _search_satellite_catalog(
     lat: float,
     lng: float,
@@ -278,6 +321,7 @@ def list_vessels(
         PositionReportORM.timestamp.desc().nulls_last()
     )
     rows = rows.limit(limit).offset(offset).all()
+    assessments = _latest_risk_assessments(db, [v.id for v, _, _ in rows])
 
     items = []
     for v, pos, alert in rows:
@@ -309,8 +353,7 @@ def list_vessels(
                 course_over_ground=pos.course_over_ground,
                 heading=pos.heading,
             ) if pos else None,
-            risk_score=alert.risk_score if alert else 0,
-            recommended_action=alert.recommended_action if alert else "ignore",
+            **_risk_fields(assessments.get(v.id)),
             is_inactive=is_inactive,
             is_resolved=False, # Optimized out of bulk list
             status_reason=status_reason,
@@ -339,17 +382,15 @@ def get_vessel_detail(vessel_id: str, db: Session = Depends(get_db)):
     alert = (
         db.query(AlertORM)
         .filter(AlertORM.vessel_id == vessel_id, AlertORM.status == "active")
+        .order_by(AlertORM.created_at.desc(), AlertORM.id.desc())
         .first()
     )
 
+    assessment = _latest_risk_assessments(db, [vessel_id]).get(vessel_id)
     signals = []
     explanation = None
-    risk_score = 0.0
-    recommended_action = "ignore"
 
-    if alert:
-        risk_score = alert.risk_score
-        recommended_action = alert.recommended_action
+    if _alert_matches_assessment(alert, assessment):
         explanation = alert.explanation
         if alert.anomaly_signals_json:
             signals = [AnomalySignalSchema(**s) for s in json.loads(alert.anomaly_signals_json)]
@@ -407,8 +448,7 @@ def get_vessel_detail(vessel_id: str, db: Session = Depends(get_db)):
             course_over_ground=positions[-1].course_over_ground,
             heading=positions[-1].heading,
         ) if positions else None,
-        risk_score=risk_score,
-        recommended_action=recommended_action,
+        **_risk_fields(assessment),
         positions=[PositionReportSchema(
             timestamp=p.timestamp,
             latitude=p.latitude,
@@ -507,7 +547,12 @@ def get_vessel_report(
     alert_count = alerts_query.count()
     alert_offset = min(alert_offset, max(0, (alert_count - 1) // 50 * 50))
     alerts = alerts_query.order_by(AlertORM.created_at.desc(), AlertORM.id.desc()).offset(alert_offset).limit(50).all()
-    active = alerts_query.filter(AlertORM.status == "active").order_by(AlertORM.created_at.desc()).first()
+    active = alerts_query.filter(AlertORM.status == "active").order_by(AlertORM.created_at.desc(), AlertORM.id.desc()).first()
+    assessment = _latest_risk_assessments(
+        db, [vessel_id], history_until, allow_alert_fallback=until is None,
+    ).get(vessel_id)
+    risk = _risk_fields(assessment)
+    matching_alert = active if until is None and _alert_matches_assessment(active, assessment) else None
     alert_history = [{
         "id": alert.id,
         "created_at": alert.created_at.replace(tzinfo=timezone.utc).isoformat(),
@@ -540,11 +585,12 @@ def get_vessel_report(
         },
         "latest_position": _position_record(latest) if latest else None,
         "risk_assessment": {
-            "score": active.risk_score if active else 0,
-            "recommended_action": active.recommended_action if active else "ignore",
-            "explanation": active.explanation if active else None,
+            "score": risk["risk_score"],
+            "recommended_action": risk["recommended_action"],
+            "assessed_at": risk["risk_assessed_at"],
+            "explanation": matching_alert.explanation if matching_alert else None,
         },
-        "anomaly_signals": json.loads(active.anomaly_signals_json) if active and active.anomaly_signals_json else [],
+        "anomaly_signals": json.loads(matching_alert.anomaly_signals_json) if matching_alert and matching_alert.anomaly_signals_json else [],
         "position_trail": [_position_record(p) for p in reversed(positions)],
         "history": {
             "position_count": count,
@@ -764,43 +810,29 @@ def get_detection_metrics(
 
 @router.get("/analytics/distribution", response_model=RiskDistributionSchema)
 def get_risk_distribution(db: Session = Depends(get_db)):
-    """Get histogram and action tier breakdown for all vessels and alerts."""
+    """Get each vessel's latest saved risk assessment distribution."""
     from collections import Counter
 
     alerts = db.query(AlertORM).all()
     all_vessels = db.query(VesselORM).all()
 
-    # Build set of vessel IDs that have an active alert
-    alerted_vessel_ids = {a.vessel_id for a in alerts if a.status == "active"}
-
-    active_scores = [a.risk_score for a in alerts if a.status == "active"]
-    resolved_scores = [a.risk_score for a in alerts if a.status == "resolved"]
-
-    # Count normal vessels (no active alert) — they have risk score 0
-    normal_vessel_count = sum(1 for v in all_vessels if v.id not in alerted_vessel_ids)
+    assessments = _latest_risk_assessments(db, [v.id for v in all_vessels])
+    active_scores = [assessment.risk_score for assessment in assessments.values()]
 
     # 1. Histogram (5-point bins)
     bins = {}
     for i in range(0, 100, 5):
         bins[i] = {"active": 0, "resolved": 0}
 
-    # Normal vessels go in the 0-4 bin
-    bins[0]["active"] += normal_vessel_count
-
     for s in active_scores:
-        b = int(s // 5) * 5
+        b = min(95, int(s // 5) * 5)
         if b in bins:
             bins[b]["active"] += 1
-
-    for s in resolved_scores:
-        b = int(s // 5) * 5
-        if b in bins:
-            bins[b]["resolved"] += 1
 
     histogram = [
         RiskHistogramBinSchema(
             bin_start=b,
-            bin_end=b+4,
+            bin_end=100 if b == 95 else b+4,
             count_active=bins[b]["active"],
             count_resolved=bins[b]["resolved"]
         ) for b in sorted(bins.keys())
@@ -811,18 +843,23 @@ def get_risk_distribution(db: Session = Depends(get_db)):
         "escalate": {"count": 0, "signals": []},
         "verify":   {"count": 0, "signals": []},
         "monitor":  {"count": 0, "signals": []},
-        "normal":   {"count": normal_vessel_count, "signals": []},
+        "normal":   {"count": 0, "signals": []},
     }
 
+    for assessment in assessments.values():
+        action = assessment.recommended_action
+        if action not in tiers_data:
+            action = "normal"
+        tiers_data[action]["count"] += 1
+
     for a in alerts:
-        if a.status != "active":
+        if a.status != "active" or not _alert_matches_assessment(a, assessments.get(a.vessel_id)):
             continue
 
         action = a.recommended_action
         if action not in tiers_data:
             action = "normal"
 
-        tiers_data[action]["count"] += 1
         if a.anomaly_signals_json:
             try:
                 sigs = json.loads(a.anomaly_signals_json)
@@ -845,7 +882,9 @@ def get_risk_distribution(db: Session = Depends(get_db)):
             top_signals=top
         ))
 
-    return RiskDistributionSchema(histogram=histogram, tiers=tiers)
+    return RiskDistributionSchema(
+        histogram=histogram, tiers=tiers, unassessed_count=len(all_vessels) - len(assessments),
+    )
 
 
 @router.post("/alerts/generate")
@@ -1120,7 +1159,7 @@ def get_positions_at_time(
 ):
     """Get all vessel positions at or before a given time (for replay)."""
     from sqlalchemy import func
-    target = datetime.fromisoformat(timestamp)
+    target = _utc_time(datetime.fromisoformat(timestamp))
 
     # Get latest position for each vessel before target time
     subq = (
@@ -1142,14 +1181,12 @@ def get_positions_at_time(
         .all()
     )
 
+    assessments = _latest_risk_assessments(
+        db, [p.vessel_id for p in positions], target, allow_alert_fallback=False,
+    )
     result = []
     for p in positions:
         vessel = db.query(VesselORM).filter(VesselORM.id == p.vessel_id).first()
-        alert = (
-            db.query(AlertORM)
-            .filter(AlertORM.vessel_id == p.vessel_id, AlertORM.status == "active")
-            .first()
-        )
         result.append({
             "vessel_id": p.vessel_id,
             "vessel_name": vessel.name if vessel else None,
@@ -1161,8 +1198,7 @@ def get_positions_at_time(
             "course_over_ground": p.course_over_ground,
             "heading": p.heading,
             "timestamp": p.timestamp.isoformat(),
-            "risk_score": alert.risk_score if alert else 0,
-            "recommended_action": alert.recommended_action if alert else "ignore",
+            **_risk_fields(assessments.get(p.vessel_id)),
         })
 
     return result

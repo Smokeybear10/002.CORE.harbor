@@ -246,6 +246,7 @@ class VesselSchema(BaseModel):
     region: Optional[str] = None
     latest_position: Optional[PositionReportSchema] = None
     risk_score: Optional[float] = None
+    risk_assessed_at: Optional[datetime] = None
     recommended_action: Optional[str] = None
     is_inactive: bool = False
     is_resolved: bool = False
@@ -358,6 +359,7 @@ class RiskTierSchema(BaseModel):
 class RiskDistributionSchema(BaseModel):
     histogram: list[RiskHistogramBinSchema]
     tiers: list[RiskTierSchema]
+    unassessed_count: int = 0
 
 
 class SatelliteBBoxSchema(BaseModel):
