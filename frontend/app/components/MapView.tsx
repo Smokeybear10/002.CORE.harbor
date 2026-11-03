@@ -5,7 +5,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useDataSource } from "@/app/lib/data-source";
 import type { Vessel, Geofence, SatelliteTileSource, MapBounds } from "@/app/lib/api";
-import { riskHex, RISK_THRESHOLDS } from "@/app/lib/risk";
+import { formatAssessmentTime, riskHex, RISK_THRESHOLDS } from "@/app/lib/risk";
 
 export interface SatelliteOverlay {
   imageSrc: string;
@@ -303,6 +303,10 @@ export default function MapView({
     lng: number;
     lat: number;
   }>>({});
+  const trailVesselIdRef = useRef<string | null>(null);
+  const selectedVessel = vessels.find((vessel) => vessel.id === selectedVesselId);
+  const selectedPositionTimestamp = selectedVessel?.latest_position?.timestamp;
+  const selectedRiskScore = selectedVessel?.risk_score;
   const [styleVersion, setStyleVersion] = useState(0);
   const styleLoadedRef = useRef(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
@@ -508,6 +512,10 @@ export default function MapView({
       const point = map.project([lng, lat]);
       const container = map.getContainer();
       el.tabIndex = point.x >= 0 && point.x <= container.clientWidth && point.y >= 0 && point.y <= container.clientHeight ? 0 : -1;
+      const riskLabel = vessel.risk_score == null ? "Not assessed" : `Risk ${Math.round(vessel.risk_score)}/100`;
+      const assessmentTime = formatAssessmentTime(vessel.risk_assessed_at);
+      el.title = `${vessel.name} (${vessel.mmsi}) — ${riskLabel}${assessmentTime ? ` · Last assessed ${assessmentTime}` : ""}${vessel.is_inactive && vessel.status_reason ? ` — ${vessel.status_reason}` : ""}`;
+      el.setAttribute("aria-label", `Inspect ${vessel.name}, ${riskLabel}`);
 
       // Skip expensive innerHTML write unless visual state actually changed.
       const unchanged =
@@ -541,8 +549,6 @@ export default function MapView({
         </svg>
       </div>`;
 
-      el.title = `${vessel.name} (${vessel.mmsi})${vessel.is_inactive && vessel.status_reason ? ` — ${vessel.status_reason}` : ""}`;
-
       markerData.state = { w, h, color, stroke: strokeColor, sw: strokeWidth, type: vesselType, selected: isSelected, muted: isMuted, course };
     });
 
@@ -569,7 +575,7 @@ export default function MapView({
         ...(!isDemo ? {
           transformConstrain: constrainLiveMap,
           bounds: WORLD_BOUNDS,
-          fitBoundsOptions: { padding: { top: window.innerWidth < 1024 ? 124 : 24, bottom: window.innerWidth < 1024 ? 112 : 64, left: 24, right: 24 } },
+          fitBoundsOptions: { padding: { top: window.innerWidth < 640 ? 124 : 84, bottom: window.innerWidth < 1024 ? 112 : 64, left: 24, right: 24 } },
         } : mapContainer.current.clientWidth < 640 ? {
           bounds: [[-118.325, 33.66], [-118.205, 33.76]] as [[number, number], [number, number]],
           fitBoundsOptions: { padding: { top: 140, bottom: 180, left: 24, right: 60 } },
@@ -745,18 +751,18 @@ export default function MapView({
     if (!flyTo || !mapRef.current) return;
     if (!isDemo && flyTo.zoom === 2) {
       mapRef.current.fitBounds(WORLD_BOUNDS, {
-        padding: { top: window.innerWidth < 1024 ? 124 : 24, bottom: window.innerWidth < 1024 ? 112 : 64, left: 24, right: 24 },
+        padding: { top: window.innerWidth < 640 ? 124 : 84, bottom: window.innerWidth < 1024 ? 112 : 64, left: 24, right: 24 },
         duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 700,
       });
       return;
     }
     mapRef.current.easeTo({
       center: flyTo.center,
-      zoom: flyTo.zoom,
+      zoom: selectedVesselId ? Math.max(mapRef.current.getZoom(), 10) : flyTo.zoom,
       offset: selectedVesselId ? (mapRef.current.getContainer().clientWidth < 640
         ? [0, 60 - mapRef.current.getContainer().clientHeight * 0.34]
         : [-210, 0]) : [0, 0],
-      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1000,
+      duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 450,
     });
   // Closing the detail panel should keep the current map position.
   }, [flyTo]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -766,14 +772,14 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !styleLoadedRef.current) return;
 
-    // Clean up previous trail
-    if (map.getLayer("vessel-trail")) map.removeLayer("vessel-trail");
-    if (map.getSource("vessel-trail")) map.removeSource("vessel-trail");
-
+    if (trailVesselIdRef.current !== selectedVesselId) {
+      if (map.getLayer("vessel-trail")) map.removeLayer("vessel-trail");
+      if (map.getSource("vessel-trail")) map.removeSource("vessel-trail");
+      trailVesselIdRef.current = selectedVesselId;
+    }
     if (!selectedVesselId) return;
 
-    const selectedVessel = vessels.find((v) => v.id === selectedVesselId);
-    const trailColor = vesselColor(selectedVessel?.risk_score ?? null);
+    const trailColor = vesselColor(selectedRiskScore ?? null);
 
     let cancelled = false;
     api.getVesselDetail(selectedVesselId).then((detail) => {
@@ -811,28 +817,34 @@ export default function MapView({
       if (currentSegment.length >= 2) segments.push(currentSegment);
       if (segments.length === 0) return;
 
-      mapRef.current.addSource("vessel-trail", {
-        type: "geojson",
-        data: {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "MultiLineString",
-            coordinates: segments,
+      const data = {
+        type: "Feature" as const,
+        properties: {},
+        geometry: {
+          type: "MultiLineString" as const,
+          coordinates: segments,
+        },
+      };
+      const source = map.getSource("vessel-trail") as maplibregl.GeoJSONSource | undefined;
+      if (source) {
+        source.setData(data);
+      } else {
+        map.addSource("vessel-trail", { type: "geojson", data });
+      }
+      if (map.getLayer("vessel-trail")) {
+        map.setPaintProperty("vessel-trail", "line-color", trailColor);
+      } else {
+        map.addLayer({
+          id: "vessel-trail",
+          type: "line",
+          source: "vessel-trail",
+          paint: {
+            "line-color": trailColor,
+            "line-width": 2,
+            "line-opacity": 0.6,
           },
-        },
-      });
-
-      mapRef.current.addLayer({
-        id: "vessel-trail",
-        type: "line",
-        source: "vessel-trail",
-        paint: {
-          "line-color": trailColor,
-          "line-width": 2,
-          "line-opacity": 0.6,
-        },
-      });
+        });
+      }
     }).catch((err) => {
       console.error("Failed to fetch vessel trail:", err);
     });
@@ -840,7 +852,7 @@ export default function MapView({
     return () => {
       cancelled = true;
     };
-  }, [selectedVesselId, vessels, mapMode, satelliteStyleKey, styleVersion, api]);
+  }, [selectedVesselId, selectedPositionTimestamp, selectedRiskScore, mapMode, satelliteStyleKey, styleVersion, api]);
 
   // Satellite imagery overlay
   useEffect(() => {
